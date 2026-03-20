@@ -1,0 +1,131 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  STAFF
+  ADMIN
+}
+
+enum TableStatus {
+  EMPTY
+  OCCUPIED
+  CLEANING
+}
+
+model User {
+  id               Int            @id @default(autoincrement())
+  username         String         @unique
+  password_hash    String
+  role             Role           @default(CUSTOMER)
+  full_name        String?
+  membership_points Int           @default(0)
+  otp_code         String?        // For Staff/Admin login
+  otp_expiry       DateTime?
+  orders           Order[]
+  paid_items       OrderItem[]    @relation("PaidBy")
+  coupons          Coupon[]
+}
+
+model Restaurant {
+  id                Int           @id @default(autoincrement())
+  name              String
+  total_capacity    Int
+  current_occupancy Int           @default(0)
+  tables            Table[]
+  menu_items        MenuItem[]
+  density_logs      DensityLog[]
+}
+
+model Table {
+  id            Int          @id @default(autoincrement())
+  table_number  Int
+  restaurant_id Int
+  restaurant    Restaurant   @relation(fields: [restaurant_id], references: [id])
+  status        TableStatus  @default(EMPTY)
+  qr_code_id    String       @unique
+  sessions      Session[]
+}
+
+model Session {
+  id         Int       @id @default(autoincrement())
+  table_id   Int
+  table      Table     @relation(fields: [table_id], references: [id])
+  join_code  String    @unique // The "XY72" code
+  is_active  Boolean   @default(true)
+  start_time DateTime  @default(now())
+  end_time   DateTime?
+  orders     Order[]
+}
+
+model Order {
+  id            Int          @id @default(autoincrement())
+  customer_id   Int
+  customer      User         @relation(fields: [customer_id], references: [id])
+  session_id    Int
+  session       Session      @relation(fields: [session_id], references: [id])
+  restaurant_id Int
+  status        String       @default("PENDING") // PENDING, PREPARING, READY, COMPLETED
+  total_amount  Float        @default(0)
+  created_at    DateTime     @default(now())
+  items         OrderItem[]
+  payments      Payment[]
+  coupon_id     Int?
+  coupon        Coupon?      @relation(fields: [coupon_id], references: [id])
+}
+
+model MenuItem {
+  id             Int          @id @default(autoincrement())
+  restaurant_id  Int
+  restaurant     Restaurant   @relation(fields: [restaurant_id], references: [id])
+  name           String
+  price          Float
+  stock_quantity Int
+  alert_threshold Int
+  order_items    OrderItem[]
+}
+
+model OrderItem {
+  id               Int      @id @default(autoincrement())
+  order_id         Int
+  order            Order    @relation(fields: [order_id], references: [id])
+  item_id          Int
+  item             MenuItem @relation(fields: [item_id], references: [id])
+  quantity         Int      @default(1)
+  paid_by_user_id  Int?     // For Bill Splitting
+  paid_by          User?    @relation("PaidBy", fields: [paid_by_user_id], references: [id])
+}
+
+model Payment {
+  id       Int    @id @default(autoincrement())
+  order_id Int
+  order    Order  @relation(fields: [order_id], references: [id])
+  method   String // CARD, CASH
+  status   String // SUCCESS, PENDING
+}
+
+model Coupon {
+  id             Int     @id @default(autoincrement())
+  admin_id       Int
+  admin          User    @relation(fields: [admin_id], references: [id])
+  code           String  @unique
+  discount_value Float
+  is_active      Boolean @default(true)
+  orders         Order[]
+}
+
+model DensityLog {
+  id            Int        @id @default(autoincrement())
+  restaurant_id Int
+  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id])
+  peak_occupancy Int
+  recorded_at   DateTime   @default(now())
+}
