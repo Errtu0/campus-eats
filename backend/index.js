@@ -4,6 +4,7 @@ const authRoutes = require('./routes/auth');
 const tableRoutes = require('./routes/tables');
 const orderRoutes = require('./routes/orders');
 const staffRoutes = require('./routes/staff'); // Add this
+const paymentRoutes = require('./routes/payments'); // Add this
 
 const app = express();
 app.use(cors()); // Enable CORS for the mobile app
@@ -13,5 +14,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/staff', staffRoutes); // Add this
+app.use('/api/payments', paymentRoutes); // Add this
 
 app.listen(3000, () => console.log("Server ready on port 3000"));

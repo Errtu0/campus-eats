@@ -88,3 +88,10 @@ npx expo start
 
 ### Important Developer Note
 Since we are using physical devices for testing, **do not use `localhost`** in your frontend API calls. Use your computer's **Local IP Address** (e.g., `192.168.1.XX`) so the Expo Go app can reach your local Node.js server.
+
+⚠️ Troubleshooting
+Network Error: Ensure your phone and PC are on the same Wi-Fi.
+
+Stripe Error: Double-check that your app.json contains the merchantIdentifier and bundleIdentifier.
+
+Prisma Error: If you change the schema, run npx prisma generate to update the client.

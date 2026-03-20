@@ -73,4 +73,14 @@ router.get('/session-cart/:sessionId', async (req, res) => {
   }
 });
 
+// Get all menu items from database
+router.get('/menu-items', async (req, res) => {
+  try {
+    const items = await prisma.menuItem.findMany();
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

@@ -34,16 +34,25 @@ router.post('/open-session', async (req, res) => {
 
 // 2. Join an existing Table (When Customer B enters the code)
 router.post('/join-session', async (req, res) => {
-  const { joinCode } = req.body;
+  const { joinCode, userId } = req.body; // Added userId to request
 
   try {
     const session = await prisma.session.findUnique({
       where: { join_code: joinCode },
-      include: { table: true }
+      include: { table: true, orders: true }
     });
 
     if (!session || !session.is_active) {
       return res.status(404).json({ error: "Invalid or expired join code." });
+    }
+
+    // Check if the user is already the one who started the session
+    const initialOrder = await prisma.order.findFirst({
+        where: { session_id: session.id }
+    });
+
+    if (initialOrder && initialOrder.customer_id === userId) {
+        return res.status(400).json({ error: "You are already the host of this table." });
     }
 
     res.json({ message: "Joined Session", session });
