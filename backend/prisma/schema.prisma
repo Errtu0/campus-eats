@@ -28,8 +28,7 @@ model User {
   role             Role           @default(CUSTOMER)
   full_name        String?
   membership_points Int           @default(0)
-  otp_code         String?        // For Staff/Admin login
-  otp_expiry       DateTime?
+  phone_number  String?
   orders           Order[]
   paid_items       OrderItem[]    @relation("PaidBy")
   coupons          Coupon[]
@@ -102,6 +101,7 @@ model OrderItem {
   quantity         Int      @default(1)
   paid_by_user_id  Int?     // For Bill Splitting
   paid_by          User?    @relation("PaidBy", fields: [paid_by_user_id], references: [id])
+  status          String?  @default("PENDING") 
 }
 
 model Payment {

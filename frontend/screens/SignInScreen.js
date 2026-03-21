@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { AUTH_URL } from '../src/config';
+import CustomAlert from '../components/CustomAlert';
 
 export default function SignInScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -9,7 +10,18 @@ export default function SignInScreen({ navigation }) {
   const [isOtpRequired, setIsOtpRequired] = useState(false);
   const [userId, setUserId] = useState(null);
 
+  // Custom Alert state
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({ title: '', message: '' });
+
+  const showAlert = (title, message) => {
+    setAlertConfig({ title, message });
+    setAlertVisible(true);
+  };
+
   const handleSignIn = async () => {
+    if (!username || !password) return showAlert("Error", "Please enter credentials.");
+
     try {
       const response = await fetch(`${AUTH_URL}/login-signup`, {
         method: 'POST',
@@ -21,17 +33,20 @@ export default function SignInScreen({ navigation }) {
       if (data.message === "OTP_REQUIRED") {
         setUserId(data.userId);
         setIsOtpRequired(true);
+        showAlert("Security Check", "OTP required for Staff/Admin access. Check console.");
       } else if (data.message === "LOGIN_SUCCESS") {
         navigation.replace('CustomerDashboard', { user: data.user });
       } else {
-        Alert.alert("Error", "Invalid username or password.");
+        showAlert("Error", "Invalid username or password.");
       }
     } catch (e) {
-      Alert.alert("Error", "Connection failed. Check your IP in config.js.");
+      showAlert("Error", "Server unreachable. check your IP.");
     }
   };
 
   const handleVerifyOtp = async () => {
+    if (!otp) return showAlert("Error", "Enter the 6-digit code.");
+
     try {
       const response = await fetch(`${AUTH_URL}/verify-otp`, {
         method: 'POST',
@@ -40,40 +55,60 @@ export default function SignInScreen({ navigation }) {
       });
       const data = await response.json();
 
-      if (data.message === "LOGIN_SUCCESS") {
-        // Direct to appropriate portal based on role
+      if (response.ok && data.message === "LOGIN_SUCCESS") {
+        // Redirect based on role
         const target = data.user.role === 'ADMIN' ? 'AdminDashboard' : 'StaffDashboard';
         navigation.replace(target, { user: data.user });
       } else {
-        Alert.alert("Error", "Invalid or expired OTP.");
+        showAlert("Error", "Invalid or expired OTP.");
       }
     } catch (e) {
-      Alert.alert("Error", "OTP verification failed.");
+      showAlert("Error", "Verification failed.");
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Sign In</Text>
+      <CustomAlert 
+        visible={alertVisible} 
+        title={alertConfig.title} 
+        message={alertConfig.message} 
+        onClose={() => setAlertVisible(false)} 
+      />
+
+      <Text style={styles.header}>CampusEats</Text>
+      
       {!isOtpRequired ? (
         <View style={{ width: '100%' }}>
-          <TextInput style={styles.input} placeholder="Username" onChangeText={setUsername} autoCapitalize="none" />
-          <TextInput style={styles.input} placeholder="Password" secureTextEntry onChangeText={setPassword} />
+          <Text style={styles.subtext}>Sign in to your account</Text>
+          <TextInput 
+            style={styles.input} 
+            placeholder="Username" 
+            onChangeText={(text) => setUsername(text.trim())} // Add .trim()
+            autoCapitalize="none" 
+          />
+          <TextInput 
+            style={styles.input} 
+            placeholder="Password" 
+            secureTextEntry 
+            onChangeText={(text) => setPassword(text.trim())} // Add .trim()
+          />
           <TouchableOpacity style={styles.primaryBtn} onPress={handleSignIn}>
-            <Text style={styles.btnText}>Sign In</Text>
+            <Text style={styles.btnText}>Login / Sign Up</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <View style={{ width: '100%' }}>
-          <Text style={styles.subtext}>Enter the 6-digit code from your console</Text>
-          <TextInput style={styles.input} placeholder="OTP Code" keyboardType="numeric" onChangeText={setOtp} />
+          <Text style={styles.subtext}>Enter the 6-digit code sent to you</Text>
+          <TextInput style={styles.input} placeholder="OTP Code" keyboardType="numeric" maxLength={6} onChangeText={setOtp} />
           <TouchableOpacity style={styles.primaryBtn} onPress={handleVerifyOtp}>
-            <Text style={styles.btnText}>Verify & Login</Text>
+            <Text style={styles.btnText}>Verify & Continue</Text>
           </TouchableOpacity>
         </View>
       )}
-      <TouchableOpacity onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Go Back</Text>
+      
+      <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 20 }}>
+        <Text style={styles.backText}>← Back to Welcome</Text>
       </TouchableOpacity>
     </View>
   );
@@ -81,10 +116,10 @@ export default function SignInScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FDFBEB', padding: 25, justifyContent: 'center', alignItems: 'center' },
-  header: { fontSize: 36, fontWeight: 'bold', marginBottom: 40, letterSpacing: 1 },
+  header: { fontSize: 32, fontWeight: '900', marginBottom: 10, textTransform: 'uppercase' },
+  subtext: { marginBottom: 30, textAlign: 'center', color: '#666', fontSize: 16 },
   input: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', padding: 18, marginBottom: 20, fontSize: 16, width: '100%' },
   primaryBtn: { backgroundColor: '#F1D1E5', borderWidth: 2, borderColor: '#000', padding: 20, alignItems: 'center', width: '100%' },
   btnText: { fontWeight: 'bold', fontSize: 18, textTransform: 'uppercase' },
-  subtext: { marginBottom: 15, textAlign: 'center', color: '#555', fontSize: 14 },
-  backText: { marginTop: 25, fontWeight: '600', color: '#333' }
+  backText: { fontWeight: '600', color: '#000', textDecorationLine: 'underline' }
 });

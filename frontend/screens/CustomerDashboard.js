@@ -47,28 +47,33 @@ export default function CustomerDashboard({ route, navigation }) {
     await connectToTable(tableId);
   };
 
-  const connectToTable = async (id) => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${TABLE_URL}/open-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableId: id, userId: user.id }),
-      });
-      const result = await response.json();
+const connectToTable = async (id) => {
+  setLoading(true);
+  try {
+    const response = await fetch(`${TABLE_URL}/open-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableId: id, userId: user.id }),
+    });
+    const result = await response.json();
 
-      if (result.session) {
-        navigation.navigate('OrderScreen', { session: result.session, user: user });
-      }
-      isProcessing.current = false;
-    } catch (e) {
-      showAlert("Error", "Could not reach the server.");
+    if (response.ok && result.session) {
+      navigation.navigate('OrderScreen', { session: result.session, user: user });
+    } else if (result.message === "TABLE_OCCUPIED") {
+      showAlert("Table Occupied", "Please enter the 4-digit Join Code to order with your friends.");
       setScanned(false);
-      isProcessing.current = false;
-    } finally {
-      setLoading(false);
+    } else {
+      showAlert("Error", result.error || "Could not open session.");
+      setScanned(false);
     }
-  };
+  } catch (e) {
+    showAlert("Error", "Server connection failed.");
+    setScanned(false);
+  } finally {
+    setLoading(false);
+    isProcessing.current = false;
+  }
+};
 
   const handleManualJoin = async () => {
     if (manualCode.length < 4) return showAlert("Error", "Please enter a 4-digit code.");

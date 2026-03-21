@@ -8,9 +8,12 @@ import SplashScreen from './screens/SplashScreen';
 import WelcomeScreen from './screens/WelcomeScreen';
 import SignInScreen from './screens/SignInScreen';
 import RegisterScreen from './screens/RegisterScreen';
-import CustomerDashboard from './screens/CustomerDashboard';  
+import CustomerDashboard from './screens/CustomerDashboard';
+import StaffDashboard from './screens/StaffDashboard';
+import AdminDashboard from './screens/AdminDashboard';
 import OrderScreen from './screens/OrderScreen';
 import TableCartScreen from './screens/TableCartScreen';
+
 
 
 const Stack = createStackNavigator();
@@ -30,6 +33,8 @@ export default function App() {
           <Stack.Screen name="CustomerDashboard" component={CustomerDashboard} />
           <Stack.Screen name="OrderScreen" component={OrderScreen} />
           <Stack.Screen name="TableCartScreen" component={TableCartScreen} />
+          <Stack.Screen name="StaffDashboard" component={StaffDashboard} />
+          <Stack.Screen name="AdminDashboard" component={AdminDashboard} />
         </Stack.Navigator>
       </NavigationContainer>
     </StripeProvider>
