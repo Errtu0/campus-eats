@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
-import { STAFF_URL } from '../src/config';
+import { View, Text, StyleSheet, Modal, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { SOCKET_URL, STAFF_URL } from '../src/config';
+import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
+import { LogOut, CheckCircle } from 'lucide-react-native';
+import { io } from 'socket.io-client'; // 1. Import Socket Client
 
 export default function StaffDashboard({ navigation }) {
   const [tables, setTables] = useState([]);
@@ -8,7 +11,6 @@ export default function StaffDashboard({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Modal State
   const [selectedTable, setSelectedTable] = useState(null);
   const [tableDetails, setTableDetails] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -20,7 +22,12 @@ export default function StaffDashboard({ navigation }) {
       const data = await response.json();
       setTables(data.tables || []);
       setOrders(data.pendingOrders || []);
-    } catch (e) { console.error(e); } finally { setLoading(false); setRefreshing(false); }
+    } catch (e) { 
+      console.error(e); 
+    } finally { 
+      setLoading(false); 
+      setRefreshing(false); 
+    }
   };
 
   const openTableModal = async (table) => {
@@ -31,7 +38,11 @@ export default function StaffDashboard({ navigation }) {
       const res = await fetch(`${STAFF_URL}/table-details/${table.id}`);
       const data = await res.json();
       setTableDetails(data);
-    } catch (e) { console.error(e); } finally { setModalLoading(false); }
+    } catch (e) { 
+      console.error(e); 
+    } finally { 
+      setModalLoading(false); 
+    }
   };
 
   const updateOrderStatus = async (id, type) => {
@@ -54,20 +65,76 @@ export default function StaffDashboard({ navigation }) {
     fetchData();
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+
+    // 1. Connect using ONLY the BASE_URL and websocket transport
+    // Make sure BASE_URL in config.js is exactly "http://YOUR_IP:3000" (NO trailing slash)
+    const socket = io(SOCKET_URL, {
+      transports: ['websocket'],
+    });
+
+    socket.on('connect', () => {
+      console.log("🟢 Connected to Socket! ID:", socket.id);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.log("🔴 Socket Connection Error:", err.message);
+      // If you still see 'Invalid Namespace', it's likely a version mismatch
+    });
+
+    socket.on('NEW_PAID_ORDER', (data) => {
+      alert("📢 " + data.message);
+      fetchData();
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('connect_error');
+      socket.off('NEW_PAID_ORDER');
+      socket.disconnect();
+    };
+  }, []);
 
   return (
-    <View style={styles.container}>
+    <View style={[GLOBAL_STYLES.container, { paddingTop: 60 }]}>
+      {/* HEADER: PINNED LEFT AND RIGHT */}
       <View style={styles.header}>
-        <Text style={styles.title}>Staff Portal</Text>
-        <TouchableOpacity onPress={() => navigation.replace('Welcome')}><Text style={styles.logout}>Logout</Text></TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={[styles.title, { color: COLORS.secondary }]}>Staff Portal</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.logoutBtn} 
+          onPress={() => navigation.replace('Welcome')}
+        >
+          <LogOut color={COLORS.primary} size={30} strokeWidth={2.5} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); fetchData();}}/>}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={() => {setRefreshing(true); fetchData();}}
+            tintColor={COLORS.black}
+          />
+        }
+      >
         <Text style={styles.sectionTitle}>Live Table Map</Text>
+        
         <View style={styles.tableGrid}>
           {tables.map(table => (
-            <TouchableOpacity key={table.id} style={[styles.tableBox, styles[table.status]]} onPress={() => openTableModal(table)}>
+            <TouchableOpacity 
+              key={table.id} 
+              style={[
+                styles.tableBox, 
+                table.status === 'EMPTY' && { backgroundColor: '#C1E1C1' },
+                table.status === 'OCCUPIED' && { backgroundColor: '#FF6961' },
+                table.status === 'CLEANING' && { backgroundColor: '#FDFD96' }
+              ]} 
+              onPress={() => openTableModal(table)}
+            >
               <Text style={styles.tableId}>{table.id}</Text>
               <Text style={styles.statusLabel}>{table.status}</Text>
             </TouchableOpacity>
@@ -75,146 +142,201 @@ export default function StaffDashboard({ navigation }) {
         </View>
         
         <Text style={styles.sectionTitle}>Paid Items Queue</Text>
-        {orders.map(item => (
+        {orders.length > 0 ? orders.map(item => (
           <View key={item.id} style={styles.orderCard}>
             <View style={styles.orderHeader}>
-                <Text style={styles.orderTable}>TABLE {item.order.session.table_id}</Text>
-                <Text style={[styles.statusTag, {color: item.status === 'READY' ? 'green' : 'orange'}]}>{item.status}</Text>
+                <Text style={styles.orderTableText}>TABLE {item.order.session.table_id}</Text>
+                <View style={[styles.statusBadge, {backgroundColor: item.status === 'READY' ? '#C1E1C1' : '#FDFD96'}]}>
+                  <Text style={styles.statusTag}>{item.status}</Text>
+                </View>
             </View>
-            <Text style={styles.orderItemName}>{item.item.name} x{item.quantity}</Text>
+            <Text style={styles.orderItemName}>{item.item.name} <Text style={{color: COLORS.secondary}}>x{item.quantity}</Text></Text>
             <TouchableOpacity 
-                style={[styles.actionBtn, {backgroundColor: item.status === 'READY' ? '#FFF' : '#F1D1E5'}]}
+                style={[styles.actionBtn, {backgroundColor: item.status === 'READY' ? COLORS.white : COLORS.secondary}]}
                 onPress={() => updateOrderStatus(item.id, item.status === 'READY' ? 'SERVED' : 'READY')}
             >
-                <Text style={styles.btnText}>{item.status === 'READY' ? 'MARK SERVED' : 'MARK READY'}</Text>
+                <Text style={styles.btnText}>{item.status === 'READY' ? 'MARK AS SERVED' : 'MARK AS READY'}</Text>
             </TouchableOpacity>
           </View>
-        ))}
+        )) : (
+          <View style={styles.emptyContainer}>
+             <CheckCircle size={40} color={COLORS.gray} />
+             <Text style={styles.emptyText}>Queue is empty</Text>
+          </View>
+        )}
       </ScrollView>
 
-      <Modal visible={modalVisible} transparent animationType="fade">
+      {/* MODAL */}
+      <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>TABLE {selectedTable?.id} STATUS</Text>
+            <View style={[styles.modalContent, { borderColor: COLORS.black }]}>
+            <Text style={styles.modalTitle}>TABLE {selectedTable?.id}</Text>
             
-            {modalLoading ? <ActivityIndicator color="#000" /> : (
+            {modalLoading ? <ActivityIndicator color={COLORS.secondary} size="large" /> : (
                 <View style={{width: '100%'}}>
                 {tableDetails?.active ? (
                     <>
-                    <Text style={styles.modalSub}>Session Code: {tableDetails.sessionCode}</Text>
+                    <View style={styles.sessionBadge}>
+                       <Text style={styles.modalSub}>CODE: {tableDetails.sessionCode}</Text>
+                    </View>
                     
-                    <Text style={styles.listHeader}>Bill Details:</Text>
-                        <ScrollView style={{ maxHeight: 250, width: '100%', marginVertical: 10 }}>
-                            {tableDetails?.items && tableDetails.items.length > 0 ? (
-                                tableDetails.items.map((item, idx) => (
-                                <View key={idx} style={[
-                                    styles.modalItemRow, 
-                                    item.status === 'SERVED' && { opacity: 0.6 } // Dim served items
-                                ]}>
-                                    <View style={{ flex: 1 }}>
-                                    <Text style={styles.modalItemName}>
-                                        {item.item.name} {item.status === 'SERVED' ? '✅' : ''}
-                                    </Text>
-                                    <Text style={{ fontSize: 10, color: '#666' }}>
-                                        Status: {item.status || 'ORDERED'}
-                                    </Text>
-                                    </View>
-                                    
-                                    <View style={{ alignItems: 'flex-end' }}>
-                                    <Text style={{
-                                        fontWeight: '900',
-                                        fontSize: 12,
-                                        color: item.paid_by_user_id ? '#2E7D32' : '#C62828'
-                                    }}>
-                                        {item.paid_by_user_id ? `PAID` : 'UNPAID'}
-                                    </Text>
-                                    {item.paid_by?.username && (
-                                        <Text style={{ fontSize: 9 }}>by {item.paid_by.username}</Text>
-                                    )}
-                                    </View>
-                                </View>
-                                ))
-                            ) : (
-                                <View style={{ padding: 20, alignItems: 'center' }}>
-                                <Text style={styles.emptyText}>No items ordered in this session yet.</Text>
-                                </View>
-                            )}
-                            </ScrollView>
+                    <Text style={styles.listHeader}>Current Orders:</Text>
+                    <ScrollView style={{ maxHeight: 250, width: '100%', marginVertical: 10 }}>
+                        {tableDetails?.items?.map((item, idx) => (
+                        <View key={idx} style={[styles.modalItemRow, item.status === 'SERVED' && { opacity: 0.4 }]}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalItemNameText}>{item.item.name}</Text>
+                                <Text style={styles.itemStatusMini}>{item.status || 'ORDERED'}</Text>
+                            </View>
+                            <View style={{ alignItems: 'flex-end' }}>
+                                <Text style={[styles.paymentStatus, { color: item.paid_by_user_id ? '#2E7D32' : '#C62828' }]}>
+                                    {item.paid_by_user_id ? 'PAID' : 'UNPAID'}
+                                </Text>
+                            </View>
+                        </View>
+                        ))}
+                    </ScrollView>
 
-                    {/* ACTION BUTTONS */}
                     {tableDetails.canClear ? (
                         <TouchableOpacity 
-                        style={styles.modalBtn} 
+                        style={styles.modalActionBtn} 
                         onPress={() => changeTableStatus(selectedTable.id, 'CLEANING')}
                         >
-                        <Text style={styles.modalBtnText}>GUESTS LEFT - MARK CLEANING</Text>
+                        <Text style={styles.modalBtnText}>MARK CLEANING</Text>
                         </TouchableOpacity>
                     ) : (
                         <View style={styles.disabledContainer}>
                         <Text style={styles.warnText}>
                             {tableDetails.items.length === 0 
-                            ? "Waiting for first order..." 
-                            : `Cannot close: ${tableDetails.unpaidCount} items unpaid.`}
+                            ? "Waiting for orders..." 
+                            : `${tableDetails.unpaidCount} items remain unpaid.`}
                         </Text>
-                        {/* Emergency Force Close for Staff */}
-                        <TouchableOpacity 
-                            onLongPress={() => changeTableStatus(selectedTable.id, 'CLEANING')}
-                            style={{marginTop: 10}}
-                        >
-                            <Text style={{fontSize: 10, color: '#ccc'}}>Hold to Force Close (Admin Only)</Text>
-                        </TouchableOpacity>
                         </View>
                     )}
                     </>
                 ) : (
                     <View style={{alignItems: 'center', paddingVertical: 20}}>
-                    <Text style={styles.emptyText}>Table is currently {selectedTable?.status}</Text>
-                    {selectedTable?.status === 'CLEANING' && (
-                        <TouchableOpacity 
-                        style={styles.modalBtn} 
-                        onPress={() => changeTableStatus(selectedTable.id, 'EMPTY')}
-                        >
-                        <Text style={styles.modalBtnText}>DONE CLEANING - SET EMPTY</Text>
-                        </TouchableOpacity>
-                    )}
-                    {selectedTable?.status === 'EMPTY' && (
-                        <Text style={styles.miniStatus}>Waiting for a customer to scan QR.</Text>
-                    )}
+                        <Text style={styles.emptyText}>Status: {selectedTable?.status}</Text>
+                        {selectedTable?.status === 'CLEANING' && (
+                            <TouchableOpacity 
+                            style={styles.modalActionBtn} 
+                            onPress={() => changeTableStatus(selectedTable.id, 'EMPTY')}
+                            >
+                            <Text style={styles.modalBtnText}>SET AS EMPTY</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
                 </View>
             )}
             
-            <TouchableOpacity style={styles.closeLink} onPress={() => setModalVisible(false)}>
-                <Text style={styles.closeLinkText}>CLOSE</Text>
+            <TouchableOpacity style={styles.closeBtn} onPress={() => setModalVisible(false)}>
+                <Text style={styles.closeBtnText}>BACK</Text>
             </TouchableOpacity>
             </View>
         </View>
-        </Modal>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', padding: 20, paddingTop: 60 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
-  title: { fontSize: 26, fontWeight: '900' },
-  logout: { color: 'red', fontWeight: 'bold' },
-  sectionTitle: { fontSize: 14, fontWeight: 'bold', marginVertical: 15, textTransform: 'uppercase' },
-  tableGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  tableBox: { width: '31%', height: 80, borderWidth: 3, borderColor: '#000', justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  EMPTY: { backgroundColor: '#C1E1C1' }, OCCUPIED: { backgroundColor: '#FF6961' }, CLEANING: { backgroundColor: '#FDFD96' },
-  tableId: { fontSize: 20, fontWeight: '900' }, statusLabel: { fontSize: 9, fontWeight: 'bold' },
-  orderCard: { backgroundColor: '#fff', borderWidth: 3, borderColor: '#000', padding: 15, marginBottom: 15 },
-  orderHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  orderTable: { fontWeight: '900' }, statusTag: { fontWeight: 'bold', fontSize: 12 },
-  orderItemName: { fontSize: 20, fontWeight: 'bold', marginVertical: 10 },
-  actionBtn: { padding: 12, borderWidth: 2, borderColor: '#000', alignItems: 'center' },
-  btnText: { fontWeight: '900' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '85%', backgroundColor: '#FDFBEB', borderWidth: 4, borderColor: '#000', padding: 20, alignItems: 'center' },
-  modalTitle: { fontSize: 22, fontWeight: '900', marginBottom: 10 },
-  modalItemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#000' },
-  modalBtn: { backgroundColor: '#F1D1E5', borderWidth: 2, borderColor: '#000', padding: 15, width: '100%', alignItems: 'center' },
-  disabledBtn: { backgroundColor: '#ccc' }, modalBtnText: { fontWeight: '900' }
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 20,
+    marginBottom: 20 
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  title: { fontSize: 28, fontWeight: '900', letterSpacing: -1 },
+  logoutBtn: { 
+    padding: 10,
+    marginRight: -10, // Pulls the icon closer to the far right edge
+  },
+  sectionTitle: { fontSize: 14, fontWeight: '900', marginVertical: 15, textTransform: 'uppercase', color: COLORS.secondary, paddingHorizontal: 20 },
+  tableGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: 20 },
+  tableBox: { 
+    width: '31%', 
+    height: 85, 
+    borderWidth: 3, 
+    borderColor: COLORS.black, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 3, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 5
+  },
+  tableId: { fontSize: 24, fontWeight: '900' }, 
+  statusLabel: { fontSize: 8, fontWeight: '900', textTransform: 'uppercase' },
+  orderCard: { 
+    backgroundColor: COLORS.white, 
+    borderWidth: 3, 
+    borderColor: COLORS.black, 
+    padding: 15, 
+    marginHorizontal: 20,
+    marginBottom: 15,
+    shadowColor: "#000",
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 5
+  },
+  orderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  orderTableText: { fontWeight: '900', fontSize: 16 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: COLORS.black },
+  statusTag: { fontWeight: '900', fontSize: 10 },
+  orderItemName: { fontSize: 22, fontWeight: '900', marginVertical: 10 },
+  actionBtn: { 
+    padding: 15, 
+    borderWidth: 2, 
+    borderColor: COLORS.black, 
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+    elevation: 2
+  },
+  btnText: { fontWeight: '900', letterSpacing: 1 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { 
+    width: '90%', 
+    backgroundColor: '#FDFBEB', 
+    borderWidth: 4, 
+    padding: 20, 
+    alignItems: 'center',
+    borderRadius: 2
+  },
+  modalTitle: { fontSize: 24, fontWeight: '900', marginBottom: 15 },
+  sessionBadge: { backgroundColor: COLORS.black, padding: 5, marginBottom: 15 },
+  modalSub: { color: COLORS.white, fontWeight: '900', fontSize: 14 },
+  listHeader: { alignSelf: 'flex-start', fontWeight: '900', fontSize: 14, marginTop: 10 },
+  modalItemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: COLORS.black },
+  modalItemNameText: { fontWeight: '900', fontSize: 16 },
+  itemStatusMini: { fontSize: 10, fontWeight: '700', color: COLORS.gray },
+  paymentStatus: { fontWeight: '900', fontSize: 12 },
+  modalActionBtn: { 
+    backgroundColor: COLORS.primary, 
+    borderWidth: 3, 
+    borderColor: COLORS.black, 
+    padding: 18, 
+    width: '100%', 
+    alignItems: 'center',
+    marginTop: 15,
+    shadowColor: "#000",
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1
+  },
+  modalBtnText: { fontWeight: '900', fontSize: 16 },
+  closeBtn: { marginTop: 20 },
+  closeBtnText: { fontWeight: '900', textDecorationLine: 'underline', color: COLORS.secondary },
+  emptyContainer: { alignItems: 'center', padding: 40 },
+  emptyText: { fontWeight: '900', color: COLORS.gray, marginTop: 10 },
+  warnText: { color: '#C62828', fontWeight: '900', textAlign: 'center', padding: 10 },
+  disabledContainer: { backgroundColor: '#eee', width: '100%', padding: 15, marginTop: 15, borderWidth: 2, borderColor: '#ccc' }
 });

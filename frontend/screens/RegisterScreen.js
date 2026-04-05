@@ -1,55 +1,121 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Animated, Alert } from 'react-native';
 import { AUTH_URL } from '../src/config';
+import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
+import CustomAlert from '../components/CustomAlert';
 
 export default function RegisterScreen({ navigation }) {
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+
+  // Custom Alert state
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({ title: '', message: '' });
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, friction: 8, useNativeDriver: true })
+    ]).start();
+  }, []);
+
+  const showAlert = (title, message) => {
+    setAlertConfig({ title, message });
+    setAlertVisible(true);
+  };
+
   const handleRegister = async () => {
-    if (!username || !password) return Alert.alert("Error", "All fields are required.");
+    if (!username || !email || !password) {
+      return showAlert("Error", "All fields are required.");
+    }
 
     try {
-      const response = await fetch(`${AUTH_URL}/login-signup`, {
+      const response = await fetch(`${AUTH_URL}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, role: 'CUSTOMER' }),
+        body: JSON.stringify({ 
+          username: username.trim(), 
+          email: email.trim(), 
+          password: password.trim(), 
+          role: 'CUSTOMER' 
+        }),
       });
       
+      const data = await response.json();
+
       if (response.ok) {
-        Alert.alert("Success", "Account created! You can now sign in.");
-        navigation.navigate('SignIn');
+        showAlert("Success", "Account created! You can now sign in.");
+        setTimeout(() => {
+            setAlertVisible(false);
+            navigation.navigate('SignIn');
+        }, 1500);
       } else {
-        const err = await response.json();
-        Alert.alert("Error", err.error || "Username already taken.");
+        showAlert("Error", data.error || "Username or Email already taken.");
       }
     } catch (e) {
-      Alert.alert("Error", "Connection failed.");
+      showAlert("Error", "Connection failed. Please try again.");
     }
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Register</Text>
-      <TextInput style={styles.input} placeholder="Choose Username" onChangeText={setUsername} autoCapitalize="none" />
-      <TextInput style={styles.input} placeholder="Choose Password" secureTextEntry onChangeText={setPassword} />
-      
-      <TouchableOpacity style={styles.primaryBtn} onPress={handleRegister}>
-        <Text style={styles.btnText}>Create Account</Text>
-      </TouchableOpacity>
+    <View style={GLOBAL_STYLES.container}>
+      <CustomAlert 
+        visible={alertVisible} 
+        title={alertConfig.title} 
+        message={alertConfig.message} 
+        onClose={() => setAlertVisible(false)} 
+      />
 
-      <TouchableOpacity onPress={() => navigation.navigate('SignIn')}>
-        <Text style={styles.backText}>Have an account? Sign In</Text>
-      </TouchableOpacity>
+      <Animated.View style={[styles.innerContainer, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        <Text style={[styles.header, { color: COLORS.secondary }]}>Register</Text>
+        
+        <TextInput 
+          style={[GLOBAL_STYLES.input, { textAlign: 'center' }]} 
+          placeholder="Username" 
+          placeholderTextColor="#999"
+          onChangeText={setUsername} 
+          autoCapitalize="none" 
+        />
+        
+        <TextInput 
+          style={[GLOBAL_STYLES.input, { textAlign: 'center' }]} 
+          placeholder="Email Address" 
+          placeholderTextColor="#999"
+          keyboardType="email-address"
+          onChangeText={setEmail} 
+          autoCapitalize="none" 
+        />
+        
+        <TextInput 
+          style={[GLOBAL_STYLES.input, { textAlign: 'center' }]} 
+          placeholder="Password" 
+          placeholderTextColor="#999"
+          secureTextEntry 
+          onChangeText={setPassword} 
+        />
+        
+        <TouchableOpacity 
+          style={[GLOBAL_STYLES.button, { backgroundColor: COLORS.primary, marginTop: 10 }]} 
+          onPress={handleRegister}
+        >
+          <Text style={GLOBAL_STYLES.buttonText}>Create Account</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => navigation.navigate('SignIn')} style={{ marginTop: 25 }}>
+          <Text style={[styles.backText, { color: COLORS.secondary }]}>Have an account? Sign In</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', padding: 25, justifyContent: 'center', alignItems: 'center' },
-  header: { fontSize: 36, fontWeight: 'bold', marginBottom: 40 },
-  input: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', padding: 18, marginBottom: 20, width: '100%' },
-  primaryBtn: { backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#000', padding: 20, alignItems: 'center', width: '100%' },
-  btnText: { fontWeight: 'bold', fontSize: 18, textTransform: 'uppercase' },
-  backText: { marginTop: 25 }
+  innerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%' },
+  header: { fontSize: 36, fontWeight: '900', marginBottom: 40, textTransform: 'uppercase' },
+  backText: { fontWeight: '700', textDecorationLine: 'underline' }
 });

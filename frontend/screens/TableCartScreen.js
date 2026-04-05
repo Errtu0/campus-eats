@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import Checkbox from 'expo-checkbox';
 import { useStripe } from '@stripe/stripe-react-native'; 
-import { ORDER_URL, PAYMENT_URL } from '../src/config'; // Fixed imports
+import { ORDER_URL, PAYMENT_URL } from '../src/config';
+import { COLORS, GLOBAL_STYLES } from '../src/styles/theme'; // Added theme
 import CustomAlert from '../components/CustomAlert';
 
 export default function TableCartScreen({ route, navigation }) {
@@ -51,13 +52,17 @@ export default function TableCartScreen({ route, navigation }) {
     return total.toFixed(2);
   };
 
-  const handlePayment = async () => {
+ const handlePayment = async () => {
     const amount = calculateTotal();
     if (parseFloat(amount) <= 0) return;
 
+    // FIX: Get the orderId from the first item in the cart
+    if (cartItems.length === 0) return showAlert("Error", "No items to pay for.");
+    const orderId = cartItems[0].order_id; 
+
     setPaying(true);
     try {
-      // 1. Create Payment Intent on Backend using the dedicated PAYMENT_URL
+      // 1. Request Payment Intent
       const response = await fetch(`${PAYMENT_URL}/create-payment-intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -67,26 +72,27 @@ export default function TableCartScreen({ route, navigation }) {
       
       if (!data.clientSecret) throw new Error("Could not get payment secret from server");
 
-      // 2. Initialize Payment Sheet
+      // 2. Initialize Stripe
       const { error: initError } = await initPaymentSheet({
         paymentIntentClientSecret: data.clientSecret,
         merchantDisplayName: 'CampusEats',
-        returnURL: 'campuseats://stripe-redirect', // Add this line
+        returnURL: 'campuseats://stripe-redirect',
       });
 
       if (initError) throw new Error(initError.message);
 
-      // 3. Present Payment Sheet
+      // 3. Present Stripe Sheet
       const { error: paymentError } = await presentPaymentSheet();
 
       if (paymentError) {
-        showAlert("Payment Canceled", paymentError.message);
-      } else {
-        // 4. Success!
-        await confirmPaymentInDB();
-        showAlert("Success", "Payment successful! Items marked as paid.");
-        navigation.goBack();
-      }
+      showAlert("Payment Canceled", paymentError.message);
+    } else {
+      // 1. Trigger the backend logic
+      await confirmPaymentInDB(orderId, user.id, selectedItems); 
+  
+      showAlert("Success", "Payment successful!");
+      fetchTableCart();
+    }
     } catch (e) {
       showAlert("Payment Error", e.message);
     } finally {
@@ -94,31 +100,51 @@ export default function TableCartScreen({ route, navigation }) {
     }
   };
 
-  const confirmPaymentInDB = async () => {
-    for (const itemId of selectedItems) {
-      await fetch(`${ORDER_URL}/claim-item`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderItemId: itemId, userId: user.id }),
-      });
+// 5. Helper function to hit your NEW /confirm-payment route
+const confirmPaymentInDB = async (orderId) => {
+  try {
+    const response = await fetch(`${PAYMENT_URL}/confirm-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        orderId: orderId,
+        userId: user.id,
+        selectedItemIds: selectedItems,
+        paymentMethod: 'STRIPE_CARD' 
+      }),
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      console.error("Logic Error:", result.error);
+      // We don't block the user here because the money is already gone
+    } else {
+      console.log("✅ Stock Deduction Successful:", result.message);
     }
-  };
+  } catch (error) {
+    console.error("Network Error during stock deduction:", error.message);
+  }
+};
 
   const renderItem = ({ item }) => {
     const isPaid = !!item.paid_by_user_id;
+    const isSelected = selectedItems.includes(item.id);
+    
     return (
       <View style={[styles.itemRow, isPaid && styles.paidItem]}>
         <View style={styles.itemInfo}>
           <Text style={styles.itemName}>{item.item.name}</Text>
           <Text style={styles.itemSub}>
-            {isPaid ? `Paid by ${item.paid_by?.username || 'user'}` : `$${item.item.price}`}
+            {isPaid ? `Paid by ${item.paid_by?.username || 'user'}` : `$${item.item.price.toFixed(2)}`}
           </Text>
         </View>
         {!isPaid && (
           <Checkbox
-            value={selectedItems.includes(item.id)}
+            style={styles.checkbox}
+            value={isSelected}
             onValueChange={() => toggleItemSelection(item.id)}
-            color={selectedItems.includes(item.id) ? '#F1D1E5' : undefined}
+            color={isSelected ? COLORS.primary : COLORS.black}
           />
         )}
       </View>
@@ -133,13 +159,14 @@ export default function TableCartScreen({ route, navigation }) {
       <Text style={styles.subtitle}>Select items you want to pay for:</Text>
 
       {loading ? (
-        <ActivityIndicator size="large" color="#000" style={{marginTop: 40}} />
+        <ActivityIndicator size="large" color={COLORS.secondary} style={{marginTop: 40}} />
       ) : (
         <FlatList
           data={cartItems}
           renderItem={renderItem}
           keyExtractor={item => item.id.toString()}
-          contentContainerStyle={{ paddingBottom: 150 }}
+          contentContainerStyle={{ paddingBottom: 180 }}
+          showsVerticalScrollIndicator={false}
         />
       )}
 
@@ -153,7 +180,7 @@ export default function TableCartScreen({ route, navigation }) {
           disabled={selectedItems.length === 0 || paying}
           onPress={handlePayment}
         >
-          {paying ? <ActivityIndicator color="#000" /> : <Text style={styles.payBtnText}>PAY VIA STRIPE</Text>}
+          {paying ? <ActivityIndicator color={COLORS.black} /> : <Text style={styles.payBtnText}>PAY VIA STRIPE</Text>}
         </TouchableOpacity>
       </View>
     </View>
@@ -161,18 +188,113 @@ export default function TableCartScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', padding: 20, paddingTop: 60 },
-  title: { fontSize: 28, fontWeight: '900', textTransform: 'uppercase' },
-  subtitle: { fontSize: 14, color: '#666', marginBottom: 20 },
-  itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', marginBottom: 12 },
-  paidItem: { opacity: 0.4, backgroundColor: '#E0E0E0' },
-  itemName: { fontSize: 18, fontWeight: 'bold' },
-  itemSub: { fontSize: 14, color: '#555', marginTop: 4 },
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', borderTopWidth: 3, borderColor: '#000', padding: 20, paddingBottom: 40 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
-  totalLabel: { fontSize: 18, fontWeight: 'bold' },
-  totalAmount: { fontSize: 24, fontWeight: '900' },
-  payBtn: { backgroundColor: '#F1D1E5', borderWidth: 2, borderColor: '#000', padding: 20, alignItems: 'center' },
-  disabledBtn: { backgroundColor: '#ccc' },
-  payBtnText: { fontWeight: '900', fontSize: 16 }
+  container: { 
+    flex: 1, 
+    backgroundColor: '#FDFBEB', 
+    padding: 20, 
+    paddingTop: 60 
+  },
+  title: { 
+    fontSize: 28, 
+    fontWeight: '900', 
+    textTransform: 'uppercase',
+    color: COLORS.black 
+  },
+  subtitle: { 
+    fontSize: 14, 
+    color: COLORS.gray, 
+    fontWeight: '600',
+    marginBottom: 20 
+  },
+  itemRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    padding: 20, 
+    backgroundColor: COLORS.white, 
+    borderWidth: 2, 
+    borderColor: COLORS.black, 
+    marginBottom: 12,
+    // Neobrutalist Shadow
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 4
+  },
+  paidItem: { 
+    opacity: 0.5, 
+    backgroundColor: '#E0E0E0',
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0
+  },
+  itemInfo: { flex: 1 },
+  itemName: { 
+    fontSize: 18, 
+    fontWeight: '900',
+    color: COLORS.black 
+  },
+  itemSub: { 
+    fontSize: 14, 
+    color: COLORS.gray, 
+    fontWeight: '700',
+    marginTop: 4 
+  },
+  checkbox: {
+    width: 25,
+    height: 25,
+    borderWidth: 2,
+    borderColor: COLORS.black,
+  },
+  footer: { 
+    position: 'absolute', 
+    bottom: 0, 
+    left: 0, 
+    right: 0, 
+    backgroundColor: COLORS.white, 
+    borderTopWidth: 3, 
+    borderColor: COLORS.black, 
+    padding: 20, 
+    paddingBottom: 40 
+  },
+  totalRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    marginBottom: 15 
+  },
+  totalLabel: { 
+    fontSize: 18, 
+    fontWeight: '900',
+    color: COLORS.black 
+  },
+  totalAmount: { 
+    fontSize: 26, 
+    fontWeight: '900',
+    color: COLORS.black 
+  },
+  payBtn: { 
+    backgroundColor: COLORS.primary, // Using the Pink color
+    borderWidth: 2, 
+    borderColor: COLORS.black, 
+    padding: 20, 
+    alignItems: 'center',
+    // Button Shadow
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 5
+  },
+  disabledBtn: { 
+    backgroundColor: '#ccc',
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0
+  },
+  payBtnText: { 
+    fontWeight: '900', 
+    fontSize: 16,
+    color: COLORS.black,
+    letterSpacing: 1
+  }
 });

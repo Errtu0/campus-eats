@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { ORDER_URL } from '../src/config';
+import { COLORS, GLOBAL_STYLES } from '../src/styles/theme'; 
 import CustomAlert from '../components/CustomAlert';
 
 export default function OrderScreen({ route, navigation }) {
@@ -17,7 +18,6 @@ export default function OrderScreen({ route, navigation }) {
     setAlertVisible(true);
   };
 
-  // FETCH REAL DATA FROM DATABASE
   useEffect(() => {
     const fetchMenu = async () => {
       try {
@@ -25,19 +25,17 @@ export default function OrderScreen({ route, navigation }) {
         const data = await response.json();
         setMenu(data);
       } catch (e) {
-        showAlert("Error", "Could not load menu items from database.");
+        showAlert("Error", "Could not load menu items.");
       } finally {
         setLoading(false);
       }
     };
-
     fetchMenu();
   }, []);
 
   const addToCart = async (itemId, itemName) => {
     if (addingItem) return;
     setAddingItem(true);
-    
     try {
       const response = await fetch(`${ORDER_URL}/add-item`, {
         method: 'POST',
@@ -49,13 +47,10 @@ export default function OrderScreen({ route, navigation }) {
           quantity: 1
         }),
       });
-
-      const data = await response.json();
-
       if (response.ok) {
         showAlert("Added!", `${itemName} added to table cart.`);
       } else {
-        showAlert("Error", data.error || "Foreign key violation: Check item ID.");
+        showAlert("Error", "Check item ID.");
       }
     } catch (e) {
       showAlert("Offline", "Server is unreachable.");
@@ -66,10 +61,9 @@ export default function OrderScreen({ route, navigation }) {
 
   const renderItem = ({ item }) => (
     <View style={styles.card}>
-      <View>
+      <View style={styles.textContainer}>
         <Text style={styles.itemName}>{item.name}</Text>
-        {/* Render simple text for price since it's just a number */}
-        <Text style={styles.itemPrice}>${item.price}</Text>
+        <Text style={styles.itemPrice}>${item.price.toFixed(2)}</Text>
       </View>
       <TouchableOpacity 
         style={styles.addBtn} 
@@ -90,8 +84,9 @@ export default function OrderScreen({ route, navigation }) {
         onClose={() => setAlertVisible(false)} 
       />
 
+      {/* HEADER: Pinned Left and Right */}
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerLeft}>
           <Text style={styles.tableLabel}>TABLE {session.table_id}</Text>
           <Text style={styles.userGreet}>Ordering as {user.username}</Text>
         </View>
@@ -103,7 +98,7 @@ export default function OrderScreen({ route, navigation }) {
       <Text style={styles.menuTitle}>Menu</Text>
 
       {loading ? (
-        <ActivityIndicator size="large" color="#000" style={{ marginTop: 50 }} />
+        <ActivityIndicator size="large" color={COLORS.secondary} style={{ marginTop: 50 }} />
       ) : (
         <FlatList
           data={menu}
@@ -125,19 +120,109 @@ export default function OrderScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', padding: 20, paddingTop: 60 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 30 },
-  tableLabel: { fontSize: 28, fontWeight: '900', letterSpacing: -1 },
-  userGreet: { fontSize: 14, color: '#555', fontWeight: '500' },
-  codeBadge: { backgroundColor: '#000', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
-  codeText: { color: '#fff', fontWeight: 'bold', fontSize: 18, letterSpacing: 1 },
-  menuTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textTransform: 'uppercase', color: '#333' },
-  list: { paddingBottom: 120 },
-  card: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', padding: 20, marginBottom: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.1, shadowRadius: 0 },
-  itemName: { fontSize: 18, fontWeight: 'bold' },
-  itemPrice: { fontSize: 16, color: '#000', marginTop: 4 },
-  addBtn: { backgroundColor: '#F1D1E5', width: 45, height: 45, borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  addBtnText: { fontSize: 28, fontWeight: 'bold', marginTop: -2 },
-  cartBtn: { position: 'absolute', bottom: 30, left: 20, right: 20, backgroundColor: '#FFFFFF', borderWidth: 3, borderColor: '#000', padding: 20, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1, shadowRadius: 0 },
-  cartBtnText: { fontWeight: '900', fontSize: 16, textTransform: 'uppercase' }
+  container: { 
+    flex: 1, 
+    backgroundColor: '#F4F1DE', // Using your theme cream directly for reliability
+    paddingTop: 60
+  },
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', // Pushes Left and Right apart
+    alignItems: 'center', 
+    paddingHorizontal: 20, // Only padding on the sides
+    marginBottom: 30 
+  },
+  headerLeft: {
+    flex: 1, // Takes up remaining space on the left
+  },
+  tableLabel: { 
+    fontSize: 28, 
+    fontWeight: '900', 
+    color: COLORS.black 
+  },
+  userGreet: { 
+    fontSize: 14, 
+    color: COLORS.gray, 
+    fontWeight: '600' 
+  },
+  codeBadge: { 
+    backgroundColor: COLORS.secondary, 
+    paddingHorizontal: 15, 
+    paddingVertical: 8, 
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: COLORS.black
+  },
+  codeText: { 
+    color: COLORS.white, 
+    fontWeight: '900', 
+    fontSize: 20 
+  },
+  menuTitle: { 
+    fontSize: 18, 
+    fontWeight: '900', 
+    marginHorizontal: 20,
+    marginBottom: 15, 
+    textTransform: 'uppercase' 
+  },
+  list: { 
+    paddingHorizontal: 20, // Cards will breathe but stay large
+    paddingBottom: 120 
+  },
+  card: { 
+    backgroundColor: COLORS.white, 
+    borderWidth: 2, 
+    borderColor: COLORS.black, 
+    padding: 20, 
+    marginBottom: 15, 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    // Strong Neobrutalist Shadow
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 5, height: 5 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 5
+  },
+  textContainer: {
+    flex: 1
+  },
+  itemName: { fontSize: 18, fontWeight: '900' },
+  itemPrice: { fontSize: 16, color: COLORS.black, fontWeight: '700' },
+  addBtn: { 
+    backgroundColor: COLORS.secondary,
+    width: 50, 
+    height: 50, 
+    borderWidth: 2, 
+    borderColor: COLORS.black, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  addBtnText: { 
+    fontSize: 32, 
+    fontWeight: '900', 
+    marginTop: -2 
+  },
+  cartBtn: { 
+    position: 'absolute', 
+    bottom: 30, 
+    alignSelf: 'center',
+    width: '90%', 
+    backgroundColor: COLORS.white, 
+    borderWidth: 3, 
+    borderColor: COLORS.black, 
+    padding: 20, 
+    alignItems: 'center',
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 8
+  },
+  cartBtnText: { 
+    fontWeight: '900', 
+    fontSize: 16, 
+    textTransform: 'uppercase' 
+  }
 });

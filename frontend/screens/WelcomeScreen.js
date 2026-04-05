@@ -1,36 +1,88 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image, Animated } from 'react-native';
+import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
 
 export default function WelcomeScreen({ navigation }) {
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current; // For logo and buttons
+  const slideAnim = useRef(new Animated.Value(30)).current; // For sliding buttons up
+
+  useEffect(() => {
+    // Standard React Native Animation sequence
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true, // High performance
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, []);
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.logoText}>CampusEats</Text>
-      
-      <TouchableOpacity 
-        style={[styles.button, { backgroundColor: '#F1D1E5' }]} 
-        onPress={() => navigation.navigate('SignIn')}
-      >
-        <Text style={styles.buttonText}>Sign In</Text>
-      </TouchableOpacity>
+    <View style={GLOBAL_STYLES.container}>
+      <View style={styles.contentContainer}>
 
-      <TouchableOpacity 
-        style={[styles.button, { backgroundColor: '#FFFFFF' }]} 
-        onPress={() => navigation.navigate('Register')}
-      >
-        <Text style={styles.buttonText}>Register</Text>
-      </TouchableOpacity>
+          <Image 
+            source={require('../assets/logo.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        
 
-      <TouchableOpacity style={styles.guestLink} onPress={() => {/* Call Guest API */}}>
-        <Text style={styles.guestText}>☕ Continue as guest</Text>
-      </TouchableOpacity>
+        {/* Animated Buttons Container */}
+        <Animated.View style={{ 
+          width: '100%', 
+          alignItems: 'center', 
+          opacity: fadeAnim, 
+          transform: [{ translateY: slideAnim }] 
+        }}>
+          <TouchableOpacity 
+            style={[GLOBAL_STYLES.button, { backgroundColor: COLORS.primary }]} 
+            onPress={() => navigation.navigate('SignIn')}
+          >
+            <Text style={GLOBAL_STYLES.buttonText}>Sign In</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[GLOBAL_STYLES.button, { backgroundColor: COLORS.secondary, marginTop: 15 }]} 
+            onPress={() => navigation.navigate('Register')}
+          >
+            <Text style={GLOBAL_STYLES.buttonText}>Register</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.guestLink} onPress={() => {}}>
+            <Text style={styles.guestText}>☕ Continue as guest</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 100 },
-  button: { width: '90%', height: 60, borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
-  buttonText: { fontSize: 18, fontWeight: '600' },
-  guestLink: { marginTop: 20 },
-  guestText: { fontSize: 16, color: '#333' }
+  contentContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 50,
+  },
+  logo: {
+    width: 300,
+    height: 300,
+    marginBottom: 40,
+  },
+  guestLink: { marginTop: 25 },
+  guestText: { 
+    fontSize: 16, 
+    color: COLORS.text, 
+    fontWeight: '600', 
+    textDecorationLine: 'underline' 
+  }
 });

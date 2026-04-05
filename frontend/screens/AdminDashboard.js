@@ -1,83 +1,78 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ScrollView, Modal, Alert, ActivityIndicator } from 'react-native';
+import { 
+  View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, 
+  Modal, Alert, ActivityIndicator, ScrollView, Image 
+} from 'react-native';
 import { ADMIN_URL } from '../src/config';
+import { COLORS, GLOBAL_STYLES } from '../src/styles/theme'; 
+import { 
+  LogOut, Utensils, Users, History, MonitorDot, 
+  Pencil, Trash2, PlusCircle, Package, Milk, Bean, QrCode 
+} from 'lucide-react-native';
 
 export default function AdminDashboard({ navigation }) {
   const [view, setView] = useState('MENU');
-  const [data, setData] = useState({ menu: [], staff: [], history: [], activeSessions: [] });
+  const [data, setData] = useState({ 
+    menu: [], staff: [], history: [], activeSessions: [], totalRevenue: 0, inventory: [] 
+  });
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
   
-  // State to track if we are Editing or Adding
+  // Modals State
+  const [modalVisible, setModalVisible] = useState(false);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  const [selectedQr, setSelectedQr] = useState(null);
 
-  // Unified Form States
-  const [menuForm, setMenuForm] = useState({ name: '', price: '', stock: '' });
+  // Forms
+  const [menuForm, setMenuForm] = useState({ name: '', price: '' });
   const [staffForm, setStaffForm] = useState({ username: '', password: '', phone: '' });
+  const [invForm, setInvForm] = useState({ name: '', amount: '', unit: '', min_limit: '' });
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const res = await fetch(`${ADMIN_URL}/dashboard-data`);
       const json = await res.json();
-      setData(json);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+      
+      console.log("DEBUG ADMIN DATA:", json);
+      
+      // Calculate revenue from history
+      const historyWithTotals = (json.history || []).map(order => {
+        const itemTotal = (order.items || []).reduce((sum, i) => sum + (i.item.price * (i.quantity || 1)), 0);
+        return { ...order, displayTotal: order.total_amount > 0 ? order.total_amount : itemTotal };
+      });
+
+      setData({ 
+        menu: json.menu || [],
+        staff: json.staff || [], // 👈 Ensure this matches the backend key
+        history: historyWithTotals,
+        activeSessions: json.activeSessions || [],
+        inventory: json.inventory || [],
+        totalRevenue: historyWithTotals.reduce((sum, order) => sum + order.displayTotal, 0) 
+      });
+    } catch (e) { 
+      Alert.alert("Error", "Could not load data.");
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   useEffect(() => { fetchData(); }, []);
 
-  // Open Modal for Adding
-  const openAddModal = () => {
-    setIsEditMode(false);
-    setSelectedId(null);
-    setMenuForm({ name: '', price: '', stock: '' });
-    setStaffForm({ username: '', password: '', phone: '' });
-    setModalVisible(true);
-  };
-
-  // Open Modal for Editing
-  const openEditModal = (item, type) => {
-    setIsEditMode(true);
-    setSelectedId(item.id);
-    if (type === 'MENU') {
-      setMenuForm({ 
-        name: item.name, 
-        price: item.price.toString(), 
-        stock: item.stock_quantity.toString() 
-      });
-    } else {
-      setStaffForm({ 
-        username: item.username, 
-        password: '', // Leave password empty for security during edit
-        phone: item.phone_number 
-      });
-    }
-    setModalVisible(true);
-  };
-
   const handleSave = async () => {
-    const isMenu = view === 'MENU';
-    const endpoint = isMenu ? 'menu' : 'staff';
+    const endpoint = view === 'MENU' ? 'menu' : view === 'STAFF' ? 'staff' : 'inventory';
     const method = isEditMode ? 'PATCH' : 'POST';
     const url = isEditMode ? `${ADMIN_URL}/${endpoint}/${selectedId}` : `${ADMIN_URL}/${endpoint}`;
 
-    const body = isMenu 
-      ? { 
-          name: menuForm.name, 
-          price: parseFloat(menuForm.price), 
-          stock_quantity: parseInt(menuForm.stock),
-          restaurant_id: 1 
-        }
-      : { 
-          username: staffForm.username, 
-          phone_number: staffForm.phone,
-          ...(staffForm.password ? { password_hash: staffForm.password } : {}) 
-        };
+    let body = {};
+    if (view === 'MENU') body = { ...menuForm, restaurant_id: 1 };
+    else if (view === 'STAFF') body = { ...staffForm };
+    else if (view === 'INVENTORY') body = { ...invForm, restaurant_id: 1 };
 
     try {
       const response = await fetch(url, {
-        method: method,
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
@@ -85,178 +80,258 @@ export default function AdminDashboard({ navigation }) {
       if (response.ok) {
         setModalVisible(false);
         fetchData();
-      } else {
-        const err = await response.json();
-        Alert.alert("Error", err.error || "Failed to save changes");
       }
-    } catch (e) {
-      Alert.alert("Error", "Server connection failed");
-    }
+    } catch (e) { Alert.alert("Error", "Save failed"); }
   };
 
-  const handleDelete = (type, id) => {
-    Alert.alert("Confirm Delete", `Are you sure you want to remove this ${type}?`, [
+  const handleDelete = async (type, id) => {
+    const endpoint = type.toLowerCase();
+    Alert.alert("Delete", "Are you sure?", [
       { text: "Cancel" },
       { text: "Delete", style: 'destructive', onPress: async () => {
-        await fetch(`${ADMIN_URL}/${type === 'MENU' ? 'menu' : 'staff'}/${id}`, { method: 'DELETE' });
-        fetchData();
+          await fetch(`${ADMIN_URL}/${endpoint}/${id}`, { method: 'DELETE' });
+          fetchData();
       }}
     ]);
   };
 
+  // QR Code Generation
+  const fetchQrCode = async (tableId) => {
+    try {
+      const res = await fetch(`${ADMIN_URL}/tables/${tableId}/qrcode`);
+      const json = await res.json();
+      setSelectedQr(json);
+      setQrModalVisible(true);
+    } catch (e) {
+      Alert.alert("Error", "Could not generate QR Code.");
+    }
+  };
+
+  const openAddModal = () => {
+    setIsEditMode(false);
+    setMenuForm({ name: '', price: '' });
+    setStaffForm({ username: '', password: '', phone: '' });
+    setInvForm({ name: '', amount: '', unit: '', min_limit: '' });
+    setModalVisible(true);
+  };
+
+  const openEditModal = (item, type) => {
+    setIsEditMode(true);
+    setSelectedId(item.id);
+    if (type === 'MENU') setMenuForm({ name: item.name, price: item.price.toString() });
+    else if (type === 'STAFF') setStaffForm({ username: item.username, phone: item.phone_number, password: '' });
+    else if (type === 'INVENTORY') setInvForm({ name: item.name, amount: item.amount.toString(), unit: item.unit, min_limit: item.min_limit.toString() });
+    setModalVisible(true);
+  };
+
   return (
-    <View style={styles.container}>
+    <View style={[GLOBAL_STYLES.container, { paddingTop: 60 }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Admin Panel</Text>
-        <TouchableOpacity onPress={() => navigation.replace('Welcome')}><Text style={styles.logout}>Logout</Text></TouchableOpacity>
+        <View style={styles.headerLeft}><Text style={[styles.title, { color: COLORS.secondary }]}>Admin Portal</Text></View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={() => navigation.replace('Welcome')}>
+          <LogOut color={COLORS.primary} size={28} strokeWidth={2.5} />
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.navScroll}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {['MENU', 'STAFF', 'HISTORY', 'SESSIONS'].map(v => (
-            <TouchableOpacity key={v} onPress={() => setView(v)} style={[styles.navBtn, view === v && styles.activeNav]}>
-              <Text style={styles.navText}>{v}</Text>
+      {/* Navigation Tabs */}
+      <View style={styles.tabContainer}>
+        {[
+          { id: 'MENU', icon: Utensils },
+          { id: 'STAFF', icon: Users },
+          { id: 'HISTORY', icon: History, label: 'LOGS' },
+          { id: 'SESSIONS', icon: MonitorDot },
+          { id: 'INVENTORY', icon: Package, label: 'STOCK' }
+        ].map(tab => {
+          const Icon = tab.icon;
+          const isActive = view === tab.id;
+          return (
+            <TouchableOpacity key={tab.id} onPress={() => setView(tab.id)} style={[styles.tabBtn, isActive && styles.activeTab]}>
+              <Icon size={18} color={isActive ? '#fff' : '#666'} strokeWidth={2.5} />
+              <Text style={[styles.tabText, isActive && { color: '#fff' }]}>{tab.label || tab.id}</Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          );
+        })}
       </View>
 
-      {loading ? <ActivityIndicator size="large" color="#000" /> : (
-        <View style={{flex:1}}>
+      {loading ? <ActivityIndicator size="large" color={COLORS.primary} /> : (
+        <View style={{ flex: 1 }}>
           
           {/* MENU VIEW */}
           {view === 'MENU' && (
             <>
-              <TouchableOpacity style={styles.addBtn} onPress={openAddModal}>
-                <Text style={styles.addBtnText}>+ ADD NEW ITEM</Text>
+              <TouchableOpacity style={[GLOBAL_STYLES.button, styles.addBtn]} onPress={openAddModal}>
+                <PlusCircle color="#fff" size={20} style={{ marginRight: 10 }} /><Text style={GLOBAL_STYLES.buttonText}>ADD NEW ITEM</Text>
               </TouchableOpacity>
               <FlatList data={data.menu} renderItem={({ item }) => (
-                <View style={[styles.card, item.stock_quantity < 5 && styles.lowStock]}>
+                <View style={GLOBAL_STYLES.card}>
                   <View style={styles.cardHeader}>
                     <Text style={styles.cardTitle}>{item.name}</Text>
                     <View style={styles.actionRow}>
-                        <TouchableOpacity onPress={() => openEditModal(item, 'MENU')}><Text style={styles.editText}>Edit</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => handleDelete('MENU', item.id)}><Text style={styles.delText}>Delete</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => openEditModal(item, 'MENU')} style={styles.iconBtn}><Pencil size={18} color={COLORS.secondary} /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleDelete('MENU', item.id)} style={styles.iconBtn}><Trash2 size={18} color="red" /></TouchableOpacity>
                     </View>
                   </View>
-                  <Text>Price: ${item.price.toFixed(2)} | Stock: {item.stock_quantity}</Text>
+                  <Text style={styles.boldPrice}>${item.price.toFixed(2)}</Text>
                 </View>
               )} />
             </>
           )}
 
-          {/* STAFF VIEW */}
+          {/* STAFF VIEW - RESTORED LIST */}
           {view === 'STAFF' && (
             <>
-              <TouchableOpacity style={styles.addBtn} onPress={openAddModal}>
-                <Text style={styles.addBtnText}>+ ADD NEW STAFF</Text>
+              <TouchableOpacity style={[GLOBAL_STYLES.button, styles.addBtn]} onPress={openAddModal}>
+                <PlusCircle color="#fff" size={20} style={{ marginRight: 10 }} /><Text style={GLOBAL_STYLES.buttonText}>ADD NEW STAFF</Text>
               </TouchableOpacity>
               <FlatList data={data.staff} renderItem={({ item }) => (
-                <View style={styles.card}>
+                <View style={GLOBAL_STYLES.card}>
                   <View style={styles.cardHeader}>
-                    <Text style={styles.cardTitle}>{item.username}</Text>
+                    <View>
+                        <Text style={styles.cardTitle}>{item.username}</Text>
+                        <Text style={styles.cardSubText}>{item.phone_number || 'No Phone'}</Text>
+                    </View>
                     <View style={styles.actionRow}>
-                        <TouchableOpacity onPress={() => openEditModal(item, 'STAFF')}><Text style={styles.editText}>Edit</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => handleDelete('STAFF', item.id)}><Text style={styles.delText}>Remove</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => openEditModal(item, 'STAFF')} style={styles.iconBtn}><Pencil size={18} color={COLORS.secondary} /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleDelete('STAFF', item.id)} style={styles.iconBtn}><Trash2 size={18} color="red" /></TouchableOpacity>
                     </View>
                   </View>
-                  <Text>Phone: {item.phone_number}</Text>
                 </View>
               )} />
             </>
+          )}
+
+          {/* INVENTORY VIEW */}
+          {view === 'INVENTORY' && (
+            <>
+              <TouchableOpacity style={[GLOBAL_STYLES.button, styles.addBtn]} onPress={openAddModal}>
+                <PlusCircle color="#fff" size={20} style={{ marginRight: 10 }} /><Text style={GLOBAL_STYLES.buttonText}>ADD INGREDIENT</Text>
+              </TouchableOpacity>
+              <FlatList data={data.inventory} renderItem={({ item }) => (
+                <View style={[GLOBAL_STYLES.card, item.amount <= item.min_limit && styles.lowStock]}>
+                  <View style={styles.cardHeader}>
+                    <View style={{flexDirection:'row', alignItems:'center'}}>
+                      {item.name.toLowerCase().includes('milk') ? <Milk size={18} color="#000"/> : <Bean size={18} color="#000"/>}
+                      <Text style={[styles.cardTitle, {marginLeft: 8}]}>{item.name}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => openEditModal(item, 'INVENTORY')} style={styles.iconBtn}><Pencil size={18} color={COLORS.secondary} /></TouchableOpacity>
+                  </View>
+                  <Text style={styles.cardSubText}>Amount: {item.amount} {item.unit} | Alert at: {item.min_limit}</Text>
+                </View>
+              )} />
+            </>
+          )}
+
+          {/* SESSIONS & QR VIEW */}
+          {view === 'SESSIONS' && (
+            <FlatList data={data.activeSessions} renderItem={({ item }) => (
+              <View style={styles.sessionCard}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>Table {item.table.table_number}</Text>
+                  <TouchableOpacity onPress={() => fetchQrCode(item.table.id)} style={styles.qrTrigger}>
+                    <QrCode size={24} color={COLORS.secondary} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.joinCode}>Code: {item.join_code}</Text>
+                <View style={styles.divider} />
+                {item.orders.map((order, idx) => (
+                  <Text key={idx} style={styles.miniText}>Order #{order.id} - ${order.total_amount}</Text>
+                ))}
+              </View>
+            )} />
           )}
 
           {/* HISTORY VIEW */}
           {view === 'HISTORY' && (
-            <FlatList data={data.history} renderItem={({ item }) => {
-                const displayTotal = item.total_amount > 0 ? item.total_amount : item.items.reduce((sum, i) => sum + (i.item.price * i.quantity), 0);
-                return (
-                <View style={styles.card}>
-                    <View style={styles.cardHeader}><Text style={styles.cardTitle}>Order #{item.id}</Text><Text style={styles.boldText}>${displayTotal.toFixed(2)}</Text></View>
-                    <Text style={styles.miniText}>Customer: {item.customer?.username}</Text>
-                    <Text style={{marginTop: 5}}>{item.items.map(i => `${i.item.name} x${i.quantity}`).join(', ')}</Text>
+            <View style={{flex:1}}>
+                <View style={[styles.revenueBanner, {backgroundColor: COLORS.secondary}]}>
+                    <Text style={styles.revenueLabel}>TOTAL REVENUE</Text>
+                    <Text style={styles.revenueAmount}>${data.totalRevenue.toFixed(2)}</Text>
                 </View>
-                );
-            }} />
-          )}
-
-          {/* --- REVENUE BANNER (Add this inside the Content Area, above the FlatLists) --- */}
-            <View style={styles.revenueBanner}>
-            <Text style={styles.revenueLabel}>TODAY'S REVENUE</Text>
-            <Text style={styles.revenueAmount}>${data.totalRevenue?.toFixed(2) || '0.00'}</Text>
+                <FlatList data={data.history} renderItem={({ item }) => (
+                    <View style={GLOBAL_STYLES.card}>
+                        <Text style={styles.cardTitle}>Order #{item.id} - {item.customer.username}</Text>
+                        <Text style={styles.historyItems}>
+                            {item.items.map(i => `${i.item.name} (x${i.quantity})`).join(', ')}
+                        </Text>
+                        <Text style={[styles.boldPrice, {marginTop: 5}]}>${item.displayTotal.toFixed(2)}</Text>
+                    </View>
+                )} />
             </View>
-
-            {/* --- UPDATED SESSIONS VIEW --- */}
-            {view === 'SESSIONS' && (
-            <FlatList 
-                data={data.activeSessions} 
-                renderItem={({ item }) => {
-                const allItems = item.orders.flatMap(o => o.items);
-                
-                return (
-                    <View style={styles.sessionCard}>
-                    <View style={styles.cardHeader}>
-                        <Text style={styles.cardTitle}>TABLE {item.table?.table_number}</Text>
-                        <Text style={styles.joinCode}>Code: {item.join_code}</Text>
-                    </View>
-
-                    <View style={styles.divider} />
-
-                    {allItems.length > 0 ? allItems.map((si, idx) => (
-                        <View key={idx} style={styles.orderDetailRow}>
-                        <View style={{flex: 2}}>
-                            <Text style={styles.itemNameText}>{si.item.name} (x{si.quantity})</Text>
-                            <Text style={[styles.statusBadge, 
-                            si.status === 'SERVED' ? {color: 'gray'} : {color: '#D4AF37'}
-                            ]}>
-                            ● {si.status || 'PENDING'}
-                            </Text>
-                        </View>
-                        
-                        <View style={{flex: 1, alignItems: 'flex-end'}}>
-                            <Text style={[styles.payBadge, { color: si.paid_by_user_id ? 'green' : 'red' }]}>
-                            {si.paid_by_user_id ? 'PAID' : 'UNPAID'}
-                            </Text>
-                            {si.paid_by && <Text style={styles.miniText}>by {si.paid_by.username}</Text>}
-                        </View>
-                        </View>
-                    )) : <Text style={styles.emptyText}>No items ordered yet.</Text>}
-                    </View>
-                );
-                }} 
-            />
-            )}
+          )}
         </View>
       )}
 
-      {/* --- ADD/EDIT MODAL --- */}
+      {/* QR CODE MODAL */}
+      <Modal visible={qrModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { alignItems: 'center', backgroundColor: '#fff' }]}>
+            <Text style={styles.modalHeader}>TABLE {selectedQr?.tableNumber} QR CODE</Text>
+            {selectedQr && (
+              <Image 
+                source={{ uri: selectedQr.qrCodeImage }} 
+                style={styles.qrImage} 
+                resizeMode="contain"
+              />
+            )}
+            <Text style={styles.qrSubtext}>Print this code for the table.</Text>
+            <TouchableOpacity style={[GLOBAL_STYLES.button, {width: '100%'}]} onPress={() => setQrModalVisible(false)}>
+              <Text style={GLOBAL_STYLES.buttonText}>CLOSE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ADD/EDIT MODAL */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalHeader}>{isEditMode ? 'Edit' : 'Add New'} {view === 'MENU' ? 'Inventory Item' : 'Staff Account'}</Text>
-            
-            {view === 'MENU' ? (
-              <View style={{width: '100%'}}>
-                <Text style={styles.inputLabel}>Item Name</Text>
-                <TextInput value={menuForm.name} style={styles.input} onChangeText={t => setMenuForm({...menuForm, name: t})}/>
-                <Text style={styles.inputLabel}>Price ($)</Text>
-                <TextInput value={menuForm.price} style={styles.input} keyboardType="numeric" onChangeText={t => setMenuForm({...menuForm, price: t})}/>
-                <Text style={styles.inputLabel}>Stock Quantity</Text>
-                <TextInput value={menuForm.stock} style={styles.input} keyboardType="numeric" onChangeText={t => setMenuForm({...menuForm, stock: t})}/>
-                <TouchableOpacity style={styles.saveBtn} onPress={handleSave}><Text style={styles.saveBtnText}>{isEditMode ? 'UPDATE ITEM' : 'SAVE TO MENU'}</Text></TouchableOpacity>
-              </View>
-            ) : (
-              <View style={{width: '100%'}}>
-                <Text style={styles.inputLabel}>Username</Text>
-                <TextInput value={staffForm.username} style={styles.input} onChangeText={t => setStaffForm({...staffForm, username: t})}/>
-                <Text style={styles.inputLabel}>Password {isEditMode && '(Leave blank to keep current)'}</Text>
-                <TextInput placeholder="••••••" style={styles.input} secureTextEntry onChangeText={t => setStaffForm({...staffForm, password: t})}/>
-                <Text style={styles.inputLabel}>Phone Number</Text>
-                <TextInput value={staffForm.phone} style={styles.input} onChangeText={t => setStaffForm({...staffForm, phone: t})}/>
-                <TouchableOpacity style={styles.saveBtn} onPress={handleSave}><Text style={styles.saveBtnText}>{isEditMode ? 'UPDATE STAFF' : 'CREATE STAFF'}</Text></TouchableOpacity>
-              </View>
-            )}
-            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.cancelLink}><Text>Cancel / Close</Text></TouchableOpacity>
+          <View style={[styles.modalContent, { backgroundColor: COLORS.background, borderColor: COLORS.secondary }]}>
+            <Text style={[styles.modalHeader, { color: COLORS.secondary }]}>
+              {isEditMode ? 'Edit' : 'Add'} {view}
+            </Text>
+            <ScrollView style={{width:'100%'}}>
+              {view === 'MENU' && (
+                <>
+                  <Text style={styles.inputLabel}>Name</Text>
+                  <TextInput value={menuForm.name} style={styles.input} onChangeText={t => setMenuForm({...menuForm, name: t})} />
+                  <Text style={styles.inputLabel}>Price</Text>
+                  <TextInput value={menuForm.price} style={styles.input} keyboardType="numeric" onChangeText={t => setMenuForm({...menuForm, price: t})} />
+                </>
+              )}
+              {view === 'INVENTORY' && (
+                <>
+                  <Text style={styles.inputLabel}>Ingredient Name</Text>
+                  <TextInput value={invForm.name} style={styles.input} onChangeText={t => setInvForm({...invForm, name: t})} />
+                  <Text style={styles.inputLabel}>Current Amount</Text>
+                  <TextInput value={invForm.amount} style={styles.input} keyboardType="numeric" onChangeText={t => setInvForm({...invForm, amount: t})} />
+                  <Text style={styles.inputLabel}>Unit (L, KG, pcs)</Text>
+                  <TextInput value={invForm.unit} style={styles.input} onChangeText={t => setInvForm({...invForm, unit: t})} />
+                  <Text style={styles.inputLabel}>Low Stock Alert Level</Text>
+                  <TextInput value={invForm.min_limit} style={styles.input} keyboardType="numeric" onChangeText={t => setInvForm({...invForm, min_limit: t})} />
+                </>
+              )}
+              {/* STAFF VIEW */}
+              {view === 'STAFF' && (
+                <>
+                  <Text style={styles.inputLabel}>Username</Text>
+                  <TextInput value={staffForm.username} style={styles.input} onChangeText={t => setStaffForm({...staffForm, username: t})} />
+                  <Text style={styles.inputLabel}>Phone Number</Text>
+                  <TextInput value={staffForm.phone} style={styles.input} onChangeText={t => setStaffForm({...staffForm, phone: t})} />
+                  {!isEditMode && (
+                    <>
+                      <Text style={styles.inputLabel}>Initial Password</Text>
+                      <TextInput value={staffForm.password} style={styles.input} secureTextEntry onChangeText={t => setStaffForm({...staffForm, password: t})} />
+                    </>
+                  )}
+                </>
+              )}
+            </ScrollView>
+            <TouchableOpacity style={GLOBAL_STYLES.button} onPress={handleSave}>
+              <Text style={GLOBAL_STYLES.buttonText}>SAVE CHANGES</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.cancelLink}>
+              <Text style={{ color: COLORS.secondary, fontWeight: '900' }}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -265,60 +340,37 @@ export default function AdminDashboard({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', padding: 20, paddingTop: 60 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
-  title: { fontSize: 26, fontWeight: '900' },
-  logout: { color: 'red', fontWeight: 'bold' },
-  navScroll: { marginBottom: 20 },
-  navBtn: { paddingHorizontal: 20, paddingVertical: 10, marginRight: 10, borderWidth: 2, borderColor: '#000', backgroundColor: '#fff' },
-  activeNav: { backgroundColor: '#F1D1E5' },
-  navText: { fontWeight: '900', fontSize: 12 },
-  addBtn: { backgroundColor: '#000', padding: 15, alignItems: 'center', marginBottom: 20 },
-  addBtnText: { color: '#fff', fontWeight: 'bold' },
-  card: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', padding: 15, marginBottom: 12 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, paddingHorizontal: 5 },
+  headerLeft: { flex: 1 },
+  title: { fontSize: 30, fontWeight: '900' },
+  logoutBtn: { padding: 5 },
+  tabContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, backgroundColor: '#eee', padding: 4, borderRadius: 12, borderWidth: 1, borderColor: '#ddd' },
+  tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', borderRadius: 10, gap: 5 },
+  activeTab: { backgroundColor: COLORS.secondary, borderColor: COLORS.black, borderWidth: 1.5 },
+  tabText: { fontWeight: '900', fontSize: 10, color: '#666' },
+  addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 15, paddingVertical: 15 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardTitle: { fontWeight: '900', fontSize: 18 },
-  actionRow: { flexDirection: 'row' },
-  editText: { color: 'blue', fontWeight: 'bold', marginRight: 15 },
-  delText: { color: 'red', fontWeight: 'bold' },
-  boldText: { fontWeight: 'bold' },
-  miniText: { fontSize: 10, color: '#666', marginTop: 5 },
+  cardSubText: { fontSize: 13, color: '#444', marginTop: 5, fontWeight: '600' },
+  actionRow: { flexDirection: 'row', gap: 12 },
+  iconBtn: { padding: 8, borderRadius: 8, backgroundColor: '#fff', borderWidth: 2, borderColor: '#000' },
+  qrTrigger: { padding: 10, backgroundColor: '#f0f0f0', borderRadius: 50, borderWidth: 2 },
+  qrImage: { width: 280, height: 280, marginVertical: 20 },
+  qrSubtext: { fontSize: 12, color: '#666', marginBottom: 20, fontWeight: '700' },
+  boldPrice: { fontWeight: '900', fontSize: 18, color: COLORS.secondary },
+  historyItems: { marginTop: 8, fontWeight: '700', color: '#333' },
+  miniText: { fontSize: 11, color: '#666', marginTop: 4 },
   lowStock: { borderLeftWidth: 10, borderLeftColor: 'red' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '90%', backgroundColor: '#FDFBEB', borderWidth: 4, borderColor: '#000', padding: 20 },
-  modalHeader: { fontSize: 20, fontWeight: '900', marginBottom: 20, textAlign: 'center' },
-  inputLabel: { fontWeight: 'bold', marginBottom: 5, fontSize: 12 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '90%', borderWidth: 4, padding: 25, borderRadius: 2 },
+  modalHeader: { fontSize: 22, fontWeight: '900', marginBottom: 20, textAlign: 'center', textTransform: 'uppercase' },
+  inputLabel: { fontWeight: '900', marginBottom: 5, fontSize: 12 },
   input: { width: '100%', borderWidth: 2, borderColor: '#000', padding: 12, marginBottom: 15, backgroundColor: '#fff' },
-  saveBtn: { backgroundColor: '#F1D1E5', width: '100%', padding: 18, alignItems: 'center', borderWidth: 2, borderColor: '#000' },
-  saveBtnText: { fontWeight: '900' },
   cancelLink: { marginTop: 15, alignSelf: 'center' },
-    revenueBanner: {
-    backgroundColor: '#000',
-    padding: 20,
-    borderRadius: 0,
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  revenueLabel: { color: '#F1D1E5', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
-  revenueAmount: { color: '#fff', fontSize: 32, fontWeight: '900', marginTop: 5 },
-  sessionCard: {
-    backgroundColor: '#fff',
-    borderWidth: 3,
-    borderColor: '#000',
-    padding: 15,
-    marginBottom: 15,
-  },
-  joinCode: { fontWeight: 'bold', fontSize: 14, color: '#666' },
-  divider: { height: 2, backgroundColor: '#000', marginVertical: 10 },
-  orderDetailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  itemNameText: { fontWeight: 'bold', fontSize: 14 },
-  statusBadge: { fontSize: 10, fontWeight: 'bold', marginTop: 2, textTransform: 'uppercase' },
-  payBadge: { fontSize: 12, fontWeight: '900' },
-  emptyText: { textAlign: 'center', color: '#999', marginVertical: 10, fontStyle: 'italic' },
+  revenueBanner: { padding: 25, marginBottom: 20, alignItems: 'center', borderWidth: 3, borderColor: '#000' },
+  revenueLabel: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
+  revenueAmount: { color: '#fff', fontSize: 38, fontWeight: '900', marginTop: 5 },
+  sessionCard: { backgroundColor: '#fff', borderWidth: 3, padding: 15, marginBottom: 15, borderColor: '#000' },
+  joinCode: { fontWeight: '900', fontSize: 14, color: '#666', marginTop: 5 },
+  divider: { height: 2, backgroundColor: '#000', marginVertical: 12 }
 });

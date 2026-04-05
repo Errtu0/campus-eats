@@ -2,23 +2,23 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-
+const QRCode = require('qrcode');
 // --- OVERVIEW & HISTORY ---
 router.get('/dashboard-data', async (req, res) => {
   try {
     const menu = await prisma.menuItem.findMany({ orderBy: { name: 'asc' } });
     const staff = await prisma.user.findMany({ where: { role: 'STAFF' } });
+    const inventory = await prisma.inventoryItem.findMany({ orderBy: { name: 'asc' } }); // Added this
     
-    // 1. Calculate Today's Revenue
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
     const dailyOrders = await prisma.order.findMany({
       where: { created_at: { gte: startOfDay } }
     });
+    
     const totalRevenue = dailyOrders.reduce((sum, order) => sum + order.total_amount, 0);
 
-    // 2. History with deep nesting
     const history = await prisma.order.findMany({
       take: 30,
       orderBy: { created_at: 'desc' },
@@ -28,7 +28,6 @@ router.get('/dashboard-data', async (req, res) => {
       }
     });
 
-    // 3. Active Sessions with Order Statuses
     const activeSessions = await prisma.session.findMany({
       where: { is_active: true },
       include: { 
@@ -46,7 +45,8 @@ router.get('/dashboard-data', async (req, res) => {
       }
     });
 
-    res.json({ menu, staff, history, activeSessions, totalRevenue });
+    // Added inventory to the response
+    res.json({ menu, staff, history, activeSessions, totalRevenue, inventory });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -75,15 +75,13 @@ router.delete('/menu/:id', async (req, res) => {
 
 // --- INVENTORY MANAGEMENT ---
 router.post('/menu', async (req, res) => {
-  const { name, price, stock_quantity, restaurant_id } = req.body;
+  const { name, price, restaurant_id } = req.body;
   try {
     const newItem = await prisma.menuItem.create({
       data: { 
         name, 
         price: parseFloat(price), 
-        stock_quantity: parseInt(stock_quantity),
-        restaurant_id: parseInt(restaurant_id),
-        alert_threshold: 5 // Default threshold
+        restaurant_id: parseInt(restaurant_id)
       }
     });
     res.json(newItem);
@@ -121,6 +119,110 @@ router.patch('/staff/:id', async (req, res) => {
       }
     });
     res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+router.post('/inventory', async (req, res) => {
+  const { name, amount, unit, min_limit, restaurant_id } = req.body;
+  try {
+    const newItem = await prisma.inventoryItem.create({
+      data: {
+        name,
+        amount: parseFloat(amount),
+        unit,
+        min_limit: parseFloat(min_limit),
+        restaurant_id: parseInt(restaurant_id)
+      }
+    });
+    res.json(newItem);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update Inventory (Restock or Change Limit)
+router.patch('/inventory/:id', async (req, res) => {
+  const { name, amount, unit, min_limit } = req.body;
+  try {
+    const updated = await prisma.inventoryItem.update({
+      where: { id: parseInt(req.params.id) },
+      data: {
+        name,
+        amount: amount ? parseFloat(amount) : undefined,
+        unit,
+        min_limit: min_limit ? parseFloat(min_limit) : undefined
+      }
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete Inventory Item
+router.delete('/inventory/:id', async (req, res) => {
+  try {
+    await prisma.inventoryItem.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+router.post('/menu-ingredients', async (req, res) => {
+  const { menuItemId, inventoryId, quantityUsed } = req.body;
+  try {
+    const link = await prisma.menuItemIngredient.create({
+      data: {
+        menuItemId: parseInt(menuItemId),
+        inventoryId: parseInt(inventoryId),
+        quantityUsed: parseFloat(quantityUsed)
+      }
+    });
+    res.json(link);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get ingredients for a specific menu item
+router.get('/menu/:id/ingredients', async (req, res) => {
+  try {
+    const ingredients = await prisma.menuItemIngredient.findMany({
+      where: { menuItemId: parseInt(req.params.id) },
+      include: { inventory: true }
+    });
+    res.json(ingredients);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/tables/:id/qrcode', async (req, res) => {
+  try {
+    const tableId = parseInt(req.params.id);
+    const table = await prisma.table.findUnique({
+      where: { id: tableId },
+      include: { restaurant: true }
+    });
+
+    if (!table) return res.status(404).json({ error: "Table not found" });
+
+    // This is the data the phone's camera will read
+    // We use a deep link format so the CampusEats app opens automatically
+    const qrData = `campuseats://join?restaurantId=${table.restaurant_id}&tableId=${table.id}&qrId=${table.qr_code_id}`;
+
+    // Generate the QR as a Base64 Data URL (Image)
+    const qrImage = await QRCode.toDataURL(qrData);
+
+    res.json({ 
+      tableNumber: table.table_number,
+      qrCodeImage: qrImage // This is a long string starting with "data:image/png;base64..."
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

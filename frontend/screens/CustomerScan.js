@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
 import { TABLE_URL } from '../src/config';
 import CustomAlert from '../components/CustomAlert';
 
-export default function CustomerDashboard({ route, navigation }) {
+export default function CustomerScan({ route, navigation }) {
   const { user } = route.params;
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -121,15 +122,55 @@ const connectToTable = async (id) => {
   );
 }
 
+// Updated styles for CustomerDashboard.js
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  title: { fontSize: 26, fontWeight: 'bold', marginBottom: 20, textTransform: 'uppercase' },
-  scannerContainer: { width: 280, height: 280, borderWidth: 4, borderColor: '#000', borderRadius: 20, overflow: 'hidden' },
-  loader: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.7)', zIndex: 10, justifyContent: 'center' },
-  resetBtn: { marginVertical: 15 },
-  resetBtnText: { textDecorationLine: 'underline', color: '#555' },
-  manualContainer: { width: '100%', marginTop: 10, alignItems: 'center' },
-  input: { width: '80%', backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', padding: 12, textAlign: 'center', fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
-  button: { backgroundColor: '#F1D1E5', paddingHorizontal: 40, paddingVertical: 15, borderWidth: 2, borderColor: '#000' },
-  btnText: { fontWeight: 'bold', fontSize: 16 }
+  container: { 
+    flex: 1, 
+    backgroundColor: COLORS.background, // Use your Cream color
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    padding: 20 
+  },
+  title: { 
+    fontSize: 24, 
+    fontWeight: '900', 
+    marginBottom: 20, 
+    textTransform: 'uppercase',
+    color: COLORS.secondary // Use your Blueish color
+  },
+  scannerContainer: { 
+    width: 280, 
+    height: 280, 
+    borderWidth: 3, 
+    borderColor: COLORS.black, 
+    borderRadius: 20, 
+    overflow: 'hidden' 
+  },
+  input: { 
+    width: 280, // Match your standard button width
+    backgroundColor: '#fff', 
+    borderWidth: 2, 
+    borderColor: COLORS.black, 
+    padding: 12, 
+    textAlign: 'center', 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    marginBottom: 15,
+    borderRadius: 8
+  },
+  button: { 
+    backgroundColor: COLORS.primary, // Use your Soft Red
+    width: 280, 
+    height: 55, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    borderWidth: 2, 
+    borderColor: COLORS.black,
+    borderRadius: 8
+  },
+  btnText: { 
+    color: '#FFF', 
+    fontWeight: '900', 
+    fontSize: 16 
+  }
 });

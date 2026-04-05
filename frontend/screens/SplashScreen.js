@@ -1,27 +1,42 @@
-import React, { useEffect } from 'react';
-import { View, Image, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, StyleSheet, Dimensions } from 'react-native';
+import LottieView from 'lottie-react-native';
+import { COLORS } from '../src/styles/theme'; // Centralized colors
+
+const { width, height } = Dimensions.get('window');
 
 export default function SplashScreen({ navigation }) {
+  const animation = useRef(null);
+
   useEffect(() => {
-    // Simulate loading assets/data for 3 seconds
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       navigation.replace('Welcome');
-    }, 3000);
-  }, []);
+    }, 4000); 
+    return () => clearTimeout(timer);
+  }, [navigation]);
 
   return (
     <View style={styles.container}>
-      <Image 
-        source={require('../assets/logo.png')} // Place your logo here
-        style={styles.logo}
-        resizeMode="contain"
+      <LottieView
+        autoPlay
+        ref={animation}
+        style={styles.animationStyle}
+        source={require('../assets/animations/splash_anim.json')}
+        loop={false}
       />
-      <ActivityIndicator size="large" color="#00A86B" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', justifyContent: 'center', alignItems: 'center' },
-  logo: { width: 200, height: 200, marginBottom: 20 }
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background, // Fixed to Cream
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  animationStyle: {
+    width: width,
+    height: height,
+  },
 });

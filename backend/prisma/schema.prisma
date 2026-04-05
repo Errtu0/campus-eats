@@ -22,16 +22,18 @@ enum TableStatus {
 }
 
 model User {
-  id               Int            @id @default(autoincrement())
-  username         String         @unique
-  password_hash    String
-  role             Role           @default(CUSTOMER)
-  full_name        String?
-  membership_points Int           @default(0)
-  phone_number  String?
-  orders           Order[]
-  paid_items       OrderItem[]    @relation("PaidBy")
-  coupons          Coupon[]
+  id                Int            @id @default(autoincrement())
+  username          String         @unique
+  email             String         @unique 
+  password_hash     String
+  role              Role           @default(CUSTOMER)
+  full_name         String?
+  membership_points Int            @default(0)
+  phone_number      String?
+  created_at        DateTime       @default(now()) 
+  orders            Order[]
+  paid_items        OrderItem[]    @relation("PaidBy")
+  coupons           Coupon[]
 }
 
 model Restaurant {
@@ -41,6 +43,7 @@ model Restaurant {
   current_occupancy Int           @default(0)
   tables            Table[]
   menu_items        MenuItem[]
+  inventory         InventoryItem[] 
   density_logs      DensityLog[]
 }
 
@@ -58,7 +61,7 @@ model Session {
   id         Int       @id @default(autoincrement())
   table_id   Int
   table      Table     @relation(fields: [table_id], references: [id])
-  join_code  String    @unique // The "XY72" code
+  join_code  String    @unique 
   is_active  Boolean   @default(true)
   start_time DateTime  @default(now())
   end_time   DateTime?
@@ -72,7 +75,7 @@ model Order {
   session_id    Int
   session       Session      @relation(fields: [session_id], references: [id])
   restaurant_id Int
-  status        String       @default("PENDING") // PENDING, PREPARING, READY, COMPLETED
+  status        String       @default("PENDING") 
   total_amount  Float        @default(0)
   created_at    DateTime     @default(now())
   items         OrderItem[]
@@ -82,14 +85,13 @@ model Order {
 }
 
 model MenuItem {
-  id             Int          @id @default(autoincrement())
-  restaurant_id  Int
-  restaurant     Restaurant   @relation(fields: [restaurant_id], references: [id])
-  name           String
-  price          Float
-  stock_quantity Int
-  alert_threshold Int
-  order_items    OrderItem[]
+  id              Int               @id @default(autoincrement())
+  restaurant_id   Int
+  restaurant      Restaurant        @relation(fields: [restaurant_id], references: [id])
+  name            String
+  price           Float
+  order_items     OrderItem[]
+  ingredients     MenuItemIngredient[] // ADDED THIS: Back-relation for the recipe
 }
 
 model OrderItem {
@@ -99,17 +101,17 @@ model OrderItem {
   item_id          Int
   item             MenuItem @relation(fields: [item_id], references: [id])
   quantity         Int      @default(1)
-  paid_by_user_id  Int?     // For Bill Splitting
+  paid_by_user_id  Int?     
   paid_by          User?    @relation("PaidBy", fields: [paid_by_user_id], references: [id])
-  status          String?  @default("PENDING") 
+  status           String?  @default("PENDING") 
 }
 
 model Payment {
   id       Int    @id @default(autoincrement())
   order_id Int
   order    Order  @relation(fields: [order_id], references: [id])
-  method   String // CARD, CASH
-  status   String // SUCCESS, PENDING
+  method   String 
+  status   String 
 }
 
 model Coupon {
@@ -123,9 +125,33 @@ model Coupon {
 }
 
 model DensityLog {
-  id            Int        @id @default(autoincrement())
-  restaurant_id Int
-  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id])
+  id             Int        @id @default(autoincrement())
+  restaurant_id  Int
+  restaurant     Restaurant @relation(fields: [restaurant_id], references: [id])
   peak_occupancy Int
-  recorded_at   DateTime   @default(now())
+  recorded_at    DateTime   @default(now())
+}
+
+model InventoryItem {
+  id              Int               @id @default(autoincrement())
+  restaurant_id   Int
+  restaurant      Restaurant        @relation(fields: [restaurant_id], references: [id])
+  name            String      
+  amount          Float       
+  unit            String      
+  min_limit       Float             @default(2.0) 
+  used_in_items   MenuItemIngredient[] // ADDED THIS: Back-relation for recipes
+}
+
+model MenuItemIngredient {
+  id           Int      @id @default(autoincrement())
+  menuItemId   Int
+  inventoryId  Int
+  quantityUsed Float    
+
+  menuItem     MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  inventory    InventoryItem @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId])
+  @@index([inventoryId])
 }
