@@ -55,5 +55,28 @@ export const GLOBAL_STYLES = {
     borderRadius: 8,
     fontSize: 16,
     color: COLORS.text,
-  }
+  },
+  menuImageContainer: {
+    width: 120, // Adjust size as needed
+    height: 120, // Adjust size as needed
+    borderWidth: 3, // <--- THE KEY THICK BORDER
+    borderColor: '#000',
+    backgroundColor: '#fff', // White or keep it FDFBEB cream
+    // Neobrutalist Shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 0,
+    elevation: 4,
+    // Ensure the generated image fits
+    overflow: 'hidden', 
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Style for the actual <Image> component
+  menuImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain', // Important for vector art not to stretch
+  },
 };

@@ -1,5 +1,6 @@
-const IP = "192.168.0.113";
+const IP = "192.168.0.104";
 const PORT = "3000";
+export const STRIPE_PUBLISHABLE_KEY = "pk_test_51TD5TDQcKwbP52mLtxNbb7D8YQUjatQCBbJVaaZTSWdAboQ33MupeHfQUCC3lq42goRBlZkOCuAPxJcvAo6oaLEq00r1hQdXrC"; // Replace with your actual Stripe publishable key
 
 // SOCKET_URL must be just the server origin (No /api)
 export const SOCKET_URL = `http://${IP}:${PORT}`; 

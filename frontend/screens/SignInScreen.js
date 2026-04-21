@@ -53,59 +53,39 @@ export default function SignInScreen({ navigation }) {
 
 
   const handleSignIn = async () => {
-
     if (!username || !password) return showAlert("Error", "Please enter credentials.");
-
     try {
-
       const response = await fetch(`${AUTH_URL}/login-signup`, {
-
         method: 'POST',
-
         headers: { 'Content-Type': 'application/json' },
-
         body: JSON.stringify({ username, password }),
-
       });
-
-     
-
+      
       const data = await response.json();
 
-
-
       if (response.status === 404 && data.error === "USER_NOT_FOUND") {
-
         navigation.navigate('Register');
-
         return;
-
       }
-
-
 
       if (data.message === "OTP_REQUIRED") {
-
         setUserId(data.userId);
-
-        transitionToOtp(); // Trigger the horizontal slide
-
+        transitionToOtp(); 
       } else if (data.message === "LOGIN_SUCCESS") {
-
-        navigation.replace('RestaurantPicker', { user: data.user });
-
+        // Updated Role-Based Navigation
+        if (data.user.role === 'ADMIN') {
+          navigation.replace('RestaurantSelectScreen', { user: data.user });
+        } else if (data.user.role === 'STAFF') {
+          navigation.replace('StaffDashboard', { user: data.user });
+        } else {
+          navigation.replace('RestaurantPicker', { user: data.user });
+        }
       } else {
-
         showAlert("Error", "Invalid username or password.");
-
       }
-
     } catch (e) {
-
       showAlert("Error", "Server unreachable.");
-
     }
-
   };
 
 
@@ -188,46 +168,32 @@ export default function SignInScreen({ navigation }) {
 
 
 
-  const handleVerifyOtp = async () => {
-
+const handleVerifyOtp = async () => {
     if (!otp) return showAlert("Error", "Enter the 6-digit code.");
-
     try {
-
       const response = await fetch(`${AUTH_URL}/verify-otp`, {
-
         method: 'POST',
-
         headers: { 'Content-Type': 'application/json' },
-
         body: JSON.stringify({ userId, otp }),
-
       });
-
       const data = await response.json();
 
-
-
       if (response.ok && data.message === "LOGIN_SUCCESS") {
-
-        const target = data.user.role === 'ADMIN' ? 'AdminDashboard' : 'StaffDashboard';
-
-        navigation.replace(target, { user: data.user });
-
+        // Updated Role-Based Navigation
+        if (data.user.role === 'ADMIN') {
+          navigation.replace('RestaurantSelectScreen', { user: data.user });
+        } else if (data.user.role === 'STAFF') {
+          navigation.replace('StaffDashboard', { user: data.user });
+        } else {
+          navigation.replace('Welcome', { user: data.user });
+        }
       } else {
-
         showAlert("Error", "Invalid or expired OTP.");
-
       }
-
     } catch (e) {
-
       showAlert("Error", "Verification failed.");
-
     }
-
   };
-
 
 
   return (

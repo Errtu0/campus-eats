@@ -3,49 +3,59 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 router.get('/dashboard-data', async (req, res) => {
-  try {
-    const tables = await prisma.table.findMany({ orderBy: { id: 'asc' } });
-    const pendingOrders = await prisma.orderItem.findMany({
-      where: {
-        paid_by_user_id: { not: null },
-        status: { not: 'SERVED' }
-      },
-      include: {
-        item: true,
-        order: { include: { session: { select: { table_id: true } } } }
-      },
-      orderBy: { id: 'asc' }
-    });
-    res.json({ tables, pendingOrders });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  const restaurantId = parseInt(req.query.restaurantId);
+  
+  const tables = await prisma.table.findMany({
+    where: { restaurant_id: restaurantId }
+  });
+
+  const pendingOrders = await prisma.orderItem.findMany({
+    where: {
+      // Logic: Show items that are PAID (need cooking) or READY (need serving)
+      // Remove 'PENDING' because we only want to cook items after they are paid
+      status: { in: ['PAID', 'READY'] }, 
+      order: { session: { table: { restaurant_id: restaurantId } } }
+    },
+    include: {
+      item: true,
+      order: { include: { session: { include: { table: true } } } }
+    }
+  });
+
+  res.json({ tables, pendingOrders });
 });
 
-router.get('/table-details/:tableId', async (req, res) => {
+router.get('/table-details/:id', async (req, res) => {
   try {
-    const tableId = parseInt(req.params.tableId);
+    const tableId = parseInt(req.params.id);
     const session = await prisma.session.findFirst({
       where: { table_id: tableId, is_active: true },
+      include: {
+        orders: {
+          include: {
+            items: { include: { item: true } }
+          }
+        }
+      }
     });
 
-    if (!session) return res.json({ active: false, message: "No active session." });
+    if (!session) return res.json({ active: false });
 
-    const allItems = await prisma.orderItem.findMany({
-      where: { order: { session_id: session.id } },
-      include: { item: true, paid_by: { select: { username: true } } },
-      orderBy: { id: 'asc' }
-    });
+    const allItems = session.orders.flatMap(order => order.items);
 
-    const unpaidItems = allItems.filter(i => !i.paid_by_user_id);
-    const canClear = allItems.length > 0 && unpaidItems.length === 0;
+    // Validation for "Can we close this table?"
+    // MUST be paid AND status must be 'SERVED'
+    const unpaidItems = allItems.filter(item => !item.paid_by_user_id);
+    const unservedItems = allItems.filter(item => item.status !== 'SERVED');
+
+    const canClear = allItems.length > 0 && unpaidItems.length === 0 && unservedItems.length === 0;
 
     res.json({
       active: true,
-      sessionCode: session.join_code,
-      items: allItems,
+      items: allItems, // Frontend will loop this
       canClear: canClear,
-      unpaidCount: unpaidItems.length
+      unpaidCount: unpaidItems.length,
+      unservedCount: unservedItems.length
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

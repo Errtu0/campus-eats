@@ -1,12 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
-import { TABLE_URL } from '../src/config';
-import CustomAlert from '../components/CustomAlert';
+import { COLORS, GLOBAL_STYLES } from '../../../src/styles/theme';
+import { TABLE_URL, RESTAURANT_URL } from '../../../src/config';
+import CustomAlert from '../../../components/CustomAlert';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function CustomerScan({ route, navigation }) {
-  const { user } = route.params;
+  const { user, restaurantId } = route.params;
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [manualCode, setManualCode] = useState('');
@@ -48,55 +49,85 @@ export default function CustomerScan({ route, navigation }) {
     await connectToTable(tableId);
   };
 
+// --- FIX FOR connectToTable ---
 const connectToTable = async (id) => {
   setLoading(true);
   try {
     const response = await fetch(`${TABLE_URL}/open-session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tableId: id, userId: user.id }),
+      body: JSON.stringify({ tableId: id, userId: user.id, restaurantId: restaurantId }), // Include restaurantId for validation
     });
     const result = await response.json();
 
     if (response.ok && result.session) {
-      navigation.navigate('OrderScreen', { session: result.session, user: user });
-    } else if (result.message === "TABLE_OCCUPIED") {
-      showAlert("Table Occupied", "Please enter the 4-digit Join Code to order with your friends.");
-      setScanned(false);
+      // Ensure we grab the ID from the deep include we added to the backend earlier
+      const sessionData = { 
+        ...result.session, 
+        restaurantName: result.restaurantName,
+        restaurant_id: result.restaurantId || result.session.table?.restaurant_id 
+      };
+      
+      await AsyncStorage.setItem('active_session', JSON.stringify(sessionData));
+
+      navigation.navigate('OrderScreen', { 
+        session: sessionData, 
+        user: user, 
+        restaurantName: result.restaurantName,
+        restaurantId: rId
+      });
     } else {
-      showAlert("Error", result.error || "Could not open session.");
       setScanned(false);
+      showAlert("Error", result.error || "Could not open session.");
     }
   } catch (e) {
-    showAlert("Error", "Server connection failed.");
     setScanned(false);
+    showAlert("Error", "Server connection failed.");
   } finally {
     setLoading(false);
     isProcessing.current = false;
   }
 };
 
-  const handleManualJoin = async () => {
-    if (manualCode.length < 4) return showAlert("Error", "Please enter a 4-digit code.");
-    setLoading(true);
-    try {
-      const response = await fetch(`${TABLE_URL}/join-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ joinCode: manualCode.toUpperCase(), userId: user.id }),
+// --- FIX FOR handleManualJoin ---
+const handleManualJoin = async () => {
+  if (manualCode.length < 4) return showAlert("Error", "Please enter a 4-digit code.");
+  setLoading(true);
+  try {
+    const response = await fetch(`${TABLE_URL}/join-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ joinCode: manualCode.toUpperCase(), userId: user.id }),
+    });
+    const result = await response.json();
+
+    if (response.ok) {
+      // Same logic: ensure restaurant_id is captured
+      const rId = result.session.table?.restaurant_id || result.restaurantId;
+
+      const sessionData = { 
+        ...result.session, 
+        restaurantName: result.restaurantName, 
+        restaurant_id: rId 
+      };
+      
+      await AsyncStorage.setItem('active_session', JSON.stringify(sessionData));
+
+      navigation.navigate('OrderScreen', { 
+        session: sessionData, 
+        user: user, 
+        restaurantName: result.restaurantName, 
+        restaurantId: rId
       });
-      const result = await response.json();
-      if (response.ok) {
-        navigation.navigate('OrderScreen', { session: result.session, user: user });
-      } else {
-        showAlert("Denied", result.error || "Session not found.");
-      }
-    } catch (e) {
-      showAlert("Error", "Server connection failed.");
-    } finally {
-      setLoading(false);
+    } else {
+      showAlert("Denied", result.error || "Session not found.");
     }
-  };
+  } catch (e) {
+    showAlert("Error", "Server connection failed.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>

@@ -3,9 +3,28 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+
+router.get('/', async (req, res) => {
+  const restaurantId = parseInt(req.query.restaurantId);
+  
+  if (!restaurantId) {
+    return res.status(400).json({ error: "restaurantId is required" });
+  }
+
+  try {
+    const tables = await prisma.table.findMany({
+      where: { restaurant_id: restaurantId },
+      orderBy: { table_number: 'asc' }
+    });
+    res.json(tables);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 1. Initialize/Open a Table (The first person to scan)
 router.post('/open-session', async (req, res) => {
-  const { tableId, userId } = req.body;
+  const { tableId, userId, currentRestaurantId } = req.body;
 
   try {
     const table = await prisma.table.findUnique({ 
@@ -14,7 +33,11 @@ router.post('/open-session', async (req, res) => {
     });
     
     if (!table) return res.status(404).json({ error: "Table not found." });
-
+    
+    if (table.restaurant_id !== currentRestaurantId) {
+      return res.status(403).json({ error: "This table belongs to a different restaurant branch!" });
+    }
+    
     if (table.status === 'OCCUPIED') {
       return res.status(400).json({ 
         message: "TABLE_OCCUPIED", 
@@ -50,7 +73,7 @@ router.post('/open-session', async (req, res) => {
       })
     ]);
 
-    res.json({ message: "Session Started", session });
+    res.json({ message: "Session Started", session, restaurantName: table.restaurant.name, restaurantId: table.restaurant.id });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -63,7 +86,7 @@ router.post('/join-session', async (req, res) => {
   try {
     const session = await prisma.session.findUnique({
       where: { join_code: joinCode },
-      include: { table: true }
+      include: { table: { include: { restaurant: true } } }
     });
 
     if (!session || !session.is_active) {
@@ -78,7 +101,26 @@ router.post('/join-session', async (req, res) => {
       data: { current_occupancy: { increment: 1 } }
     });
 
-    res.json({ message: "Joined Session", session });
+    res.json({ message: "Joined Session", session, restaurantName: session.table.restaurant.name, restaurantId: session.table.restaurant.id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+router.get('/session-status/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: parseInt(sessionId) },
+      select: { is_active: true }
+    });
+
+    if (!session || !session.is_active) {
+      return res.json({ is_active: false });
+    }
+
+    res.json({ is_active: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

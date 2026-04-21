@@ -73,12 +73,69 @@ router.get('/session-cart/:sessionId', async (req, res) => {
   }
 });
 
-// Get all menu items from database
 router.get('/menu-items', async (req, res) => {
+  // Extract from query string
+  const rId = parseInt(req.query.restaurantId);
+
+  // If rId is not a valid number, stop here!
+  if (!rId || isNaN(rId)) {
+    return res.status(400).json({ error: "Valid restaurantId is required" });
+  }
+
   try {
-    const items = await prisma.menuItem.findMany();
+    const items = await prisma.menuItem.findMany({
+      where: {
+        restaurant_id: rId
+      }
+    });
     res.json(items);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/user-history/:userId', async (req, res) => {
+  const { userId } = req.params;
+  const restaurantId = parseInt(req.query.restaurantId);
+
+  try {
+    const history = await prisma.orderItem.findMany({
+      where: {
+        order: {
+          customer_id: parseInt(userId),
+          restaurant_id: restaurantId,
+        },
+        status: { in: ['PAID', 'READY', 'SERVED'] } 
+      },
+      include: { 
+        item: true,
+        order: true // Include parent order to access its date if needed
+      },
+      orderBy: {
+        id: 'desc' // Use id since created_at doesn't exist on OrderItem
+      }
+    });
+
+    const uniqueItems = [];
+    const seen = new Set();
+
+    for (const record of history) {
+      // Safety check: make sure record.item exists
+      if (record.item && !seen.has(record.item_id)) {
+        seen.add(record.item_id);
+        uniqueItems.push({
+          id: record.item.id,
+          name: record.item.name,
+          price: record.item.price,
+          // Use the date from the parent Order
+          lastDate: record.order.created_at 
+        });
+      }
+    }
+
+    res.json(uniqueItems);
+  } catch (error) {
+    console.error("History Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -3,6 +3,7 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const twilio = require('twilio');
+const jwt = require('jsonwebtoken');
 
 // Environment Variables for Twilio
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -14,6 +15,15 @@ let client;
 if (TWILIO_SID && TWILIO_AUTH) {
     client = twilio(TWILIO_SID, TWILIO_AUTH);
 }
+
+const generateToken = (user) => {
+  return jwt.sign(
+    { id: user.id, username: user.username, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' } // Token lasts 7 days
+  );
+};
+
 
 // --- LOGIN ROUTE ---
 router.post('/login-signup', async (req, res) => {
@@ -28,13 +38,12 @@ router.post('/login-signup', async (req, res) => {
     }
 
     if (user.role === 'CUSTOMER') {
-      // Logic stripped: Removed token generation
-      return res.json({ message: "LOGIN_SUCCESS", user });
+      const token = generateToken(user);
+      return res.json({ message: "LOGIN_SUCCESS", user, token }); // Return Token
     } else {
-      // For Staff/Admin: Bypass OTP if Twilio is missing
       if (!client || !user.phone_number) {
-        console.log("⚠️ SMS Bypass: Logging in directly.");
-        return res.json({ message: "LOGIN_SUCCESS", user });
+        const token = generateToken(user);
+        return res.json({ message: "LOGIN_SUCCESS", user, token }); // Return Token
       }
 
       await client.verify.v2.services(VERIFY_SERVICE_SID)
@@ -56,8 +65,8 @@ router.post('/register', async (req, res) => {
     const newUser = await prisma.user.create({
       data: { username, email, password_hash: password, role: 'CUSTOMER' }
     });
-    // Logic stripped: Removed token generation
-    res.status(201).json({ message: "REGISTRATION_SUCCESS", user: newUser });
+    const token = generateToken(newUser);
+    res.status(201).json({ message: "REGISTRATION_SUCCESS", user: newUser, token }); // Return Token
   } catch (error) {
     res.status(500).json({ error: "Could not create account." });
   }
@@ -69,9 +78,9 @@ router.post('/verify-otp', async (req, res) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     
-    // DEV BYPASS: Use '000000' to skip Twilio wait
     if (otp === '000000') {
-        return res.json({ message: "LOGIN_SUCCESS", user });
+        const token = generateToken(user);
+        return res.json({ message: "LOGIN_SUCCESS", user, token }); // Return Token
     }
 
     const check = await client.verify.v2.services(VERIFY_SERVICE_SID)
@@ -79,12 +88,32 @@ router.post('/verify-otp', async (req, res) => {
       .create({ to: user.phone_number, code: otp });
 
     if (check.status === 'approved') {
-      res.json({ message: "LOGIN_SUCCESS", user });
+      const token = generateToken(user);
+      res.json({ message: "LOGIN_SUCCESS", user, token }); // Return Token
     } else {
       res.status(401).json({ error: "Invalid or expired code." });
     }
   } catch (error) {
     res.status(500).json({ error: "Verification failed." });
+  }
+});
+
+// --- PROTECTED UPDATE PROFILE ---
+const verifyToken = require('../middleware/authMiddleware'); // Import the bouncer
+
+router.patch('/update-profile', verifyToken, async (req, res) => {
+  // Now we don't trust 'userId' from the body, we get it from the Token!
+  const userIdFromToken = req.user.id; 
+  const { username } = req.body;
+
+  try {
+    const updatedUser = await prisma.user.update({
+      where: { id: parseInt(userIdFromToken) },
+      data: { username: username }
+    });
+    res.json(updatedUser);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update profile" });
   }
 });
 

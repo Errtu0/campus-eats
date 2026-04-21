@@ -36,4 +36,26 @@ router.get('/:id/tables', async (req, res) => {
   }
 });
 
+router.get('/network/:restaurantId', async (req, res) => {
+  const { restaurantId } = req.params;
+
+  try {
+    // 1. Find the admin_id of the current restaurant
+    const current = await prisma.restaurant.findUnique({
+      where: { id: parseInt(restaurantId) }
+    });
+
+    // 2. Find all restaurants with that same admin_id
+    const network = await prisma.restaurant.findMany({
+      where: { 
+        admin_id: current.admin_id,
+        NOT: { id: parseInt(restaurantId) } // Optional: exclude the one they are currently at
+      }
+    });
+
+    res.json(network);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 module.exports = router;

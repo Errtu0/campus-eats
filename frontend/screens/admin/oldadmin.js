@@ -3,8 +3,8 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, 
   Modal, Alert, ActivityIndicator, ScrollView, Image 
 } from 'react-native';
-import { ADMIN_URL } from '../src/config';
-import { COLORS, GLOBAL_STYLES } from '../src/styles/theme'; 
+import { ADMIN_URL } from '../../src/config';
+import { COLORS, GLOBAL_STYLES } from '../../src/styles/theme'; 
 import { 
   LogOut, Utensils, Users, History, MonitorDot, 
   Pencil, Trash2, PlusCircle, Package, Milk, Bean, QrCode 
@@ -32,7 +32,7 @@ export default function AdminDashboard({ navigation }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${ADMIN_URL}/dashboard-data`);
+      const res = await fetch(`${ADMIN_URL}/dashboard-data?restaurantId=${restaurant.id}`);
       const json = await res.json();
       
       console.log("DEBUG ADMIN DATA:", json);
@@ -66,9 +66,9 @@ export default function AdminDashboard({ navigation }) {
     const url = isEditMode ? `${ADMIN_URL}/${endpoint}/${selectedId}` : `${ADMIN_URL}/${endpoint}`;
 
     let body = {};
-    if (view === 'MENU') body = { ...menuForm, restaurant_id: 1 };
+    if (view === 'MENU') body = { ...menuForm, restaurant_id: restaurant.id };
     else if (view === 'STAFF') body = { ...staffForm };
-    else if (view === 'INVENTORY') body = { ...invForm, restaurant_id: 1 };
+    else if (view === 'INVENTORY') body = { ...invForm, restaurant_id: restaurant.id };
 
     try {
       const response = await fetch(url, {

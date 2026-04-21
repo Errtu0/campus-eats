@@ -33,18 +33,25 @@ model User {
   created_at        DateTime       @default(now()) 
   orders            Order[]
   paid_items        OrderItem[]    @relation("PaidBy")
+  restaurant_id     Int?
+  restaurant        Restaurant?    @relation(fields: [restaurant_id], references: [id])
+  owned_restaurants Restaurant[]   @relation("AdminOwned")
   coupons           Coupon[]
 }
 
 model Restaurant {
   id                Int           @id @default(autoincrement())
   name              String
+  admin_id          Int?           // The owner
+  admin             User?          @relation("AdminOwned", fields: [admin_id], references: [id])
+  staff             User[]         // Employees at this branch
   total_capacity    Int
   current_occupancy Int           @default(0)
   tables            Table[]
   menu_items        MenuItem[]
   inventory         InventoryItem[] 
   density_logs      DensityLog[]
+  coupons           Coupon[]
 }
 
 model Table {
@@ -92,6 +99,12 @@ model MenuItem {
   price           Float
   order_items     OrderItem[]
   ingredients     MenuItemIngredient[] // ADDED THIS: Back-relation for the recipe
+  category        String   @default("UNCATEGORIZED") // Add this temporary default
+  is_vegan        Boolean  @default(false)
+  is_gluten_free  Boolean  @default(false)
+  is_hot          Boolean  @default(false)
+  is_sweet        Boolean  @default(false)
+  is_sour         Boolean  @default(false) // Added your Sour field!
 }
 
 model OrderItem {
@@ -115,13 +128,15 @@ model Payment {
 }
 
 model Coupon {
-  id             Int     @id @default(autoincrement())
-  admin_id       Int
-  admin          User    @relation(fields: [admin_id], references: [id])
-  code           String  @unique
-  discount_value Float
-  is_active      Boolean @default(true)
-  orders         Order[]
+  id              Int      @id @default(autoincrement())
+  restaurant_id   Int?     // Add this if it's missing!
+  restaurant      Restaurant? @relation(fields: [restaurant_id], references: [id])
+  admin_id        Int
+  admin           User     @relation(fields: [admin_id], references: [id])
+  code            String   @unique
+  discount_value  Float
+  is_active       Boolean  @default(true)
+  orders          Order[]
 }
 
 model DensityLog {

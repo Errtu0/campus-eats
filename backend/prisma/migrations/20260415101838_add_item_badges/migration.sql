@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "MenuItem" ADD COLUMN     "category" TEXT NOT NULL DEFAULT 'UNCATEGORIZED',
+ADD COLUMN     "is_gluten_free" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "is_hot" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "is_sour" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "is_sweet" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "is_vegan" BOOLEAN NOT NULL DEFAULT false;

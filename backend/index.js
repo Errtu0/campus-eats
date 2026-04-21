@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http'); // 1. Import HTTP
@@ -20,6 +21,7 @@ const io = new Server(server, {
     methods: ["GET", "POST"]
   }, // Allow mobile app connections
 });
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 app.use(cors());
 app.use(express.json());

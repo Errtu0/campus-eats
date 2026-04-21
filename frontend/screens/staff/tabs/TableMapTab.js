@@ -1,0 +1,171 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, RefreshControl } from 'react-native';
+import { STAFF_URL } from '../../../src/config';
+import { COLORS } from '../../../src/styles/theme';
+
+export default function TableMapTab({ restaurantId }) {
+  const [tables, setTables] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedTable, setSelectedTable] = useState(null);
+  const [tableDetails, setTableDetails] = useState(null);
+
+  useEffect(() => { fetchData(); }, [restaurantId]);
+
+  const fetchData = async () => {
+    try {
+      const res = await fetch(`${STAFF_URL}/dashboard-data?restaurantId=${restaurantId}`);
+      const data = await res.json();
+      // ISOLATION: Ensure only tables for this restaurantId are shown
+      setTables(data.tables || []);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+
+  const openTableDetails = async (table) => {
+    setSelectedTable(table);
+    setModalVisible(true);
+    setTableDetails(null); 
+    try {
+      const res = await fetch(`${STAFF_URL}/table-details/${table.id}`);
+      const data = await res.json();
+      setTableDetails(data);
+    } catch (e) { console.error(e); }
+  };
+
+  const updateTableStatus = async (status) => {
+    try {
+    const res = await fetch(`${STAFF_URL}/table-status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableId: selectedTable.id, status }),
+    });
+
+    if (res.ok && status === 'EMPTY') {
+        // If the table is marked empty, we should ensure the session is closed in DB
+        // You would typically have a backend endpoint to end the session here
+    }
+    
+    setModalVisible(false);
+    fetchData();
+  } catch (e) { console.error(e); }
+  };
+
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.grid} refreshControl={<RefreshControl onRefresh={fetchData} refreshing={loading} tintColor="#000"/>}>
+        {tables.map(table => (
+          <TouchableOpacity 
+            key={table.id} 
+            style={[styles.tableBox, styles[table.status]]} 
+            onPress={() => openTableDetails(table)}
+          >
+            <Text style={styles.tableNum}>{table.table_number}</Text>
+            <Text style={styles.tableStatusText}>{table.status}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      <Modal visible={modalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>TABLE {selectedTable?.table_number}</Text>
+            
+            {!tableDetails ? <ActivityIndicator color="#000" /> : (
+                <View style={{ width: '100%' }}>
+                
+                {/* Order List with status indicators */}
+                <ScrollView style={styles.orderListScroll}>
+                    {tableDetails.items?.map((item, idx) => (
+                        <View key={idx} style={styles.orderDetailRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.orderNameText}>{item.item.name} (x{item.quantity})</Text>
+                            
+                            <View style={styles.badgeRow}>
+                            {/* PAYMENT STATUS */}
+                            <Text style={[styles.miniBadge, item.paid_by_user_id ? styles.paid : styles.unpaid]}>
+                                {item.paid_by_user_id ? 'PAID' : 'UNPAID'}
+                            </Text>
+
+                            {/* PREPARATION STATUS */}
+                            <Text style={[styles.miniBadge, styles.statusInfo]}>
+                                {item.status} {/* This will show 'PAID', 'READY', or 'SERVED' */}
+                            </Text>
+                            </View>
+                        </View>
+                        </View>
+                    ))}
+                    </ScrollView>
+
+                {/* Logic Based Action Button */}
+                {selectedTable?.status === 'CLEANING' ? (
+                    <TouchableOpacity style={styles.actionBtn} onPress={() => updateTableStatus('EMPTY')}>
+                    <Text style={styles.actionBtnText}>MARK AS CLEAN & READY</Text>
+                    </TouchableOpacity>
+                ) : tableDetails.canClear ? (
+                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.secondary }]} onPress={() => updateTableStatus('CLEANING')}>
+                    <Text style={styles.actionBtnText}>FINISH SESSION / CLEAN</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <View style={styles.warningBox}>
+                    <Text style={styles.warningTitle}>CANNOT CLOSE TABLE</Text>
+                    {tableDetails.unpaidCount > 0 && <Text style={styles.warningText}>• {tableDetails.unpaidCount} items are UNPAID</Text>}
+                    {tableDetails.unservedCount > 0 && <Text style={styles.warningText}>• {tableDetails.unservedCount} items are NOT SERVED</Text>}
+                    </View>
+                )}
+                </View>
+            )}
+
+            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
+                <Text style={styles.closeText}>BACK TO MAP</Text>
+            </TouchableOpacity>
+            </View>
+        </View>
+        </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 20 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingBottom: 100 },
+  tableBox: { 
+    width: '47%', height: 100, borderWidth: 3, borderColor: '#000', 
+    justifyContent: 'center', alignItems: 'center', marginBottom: 15,
+    backgroundColor: '#fff', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 1, elevation: 5
+  },
+  EMPTY: { backgroundColor: '#C1E1C1' },
+  OCCUPIED: { backgroundColor: '#FF6961' },
+  CLEANING: { backgroundColor: '#FDFD96' },
+  tableNum: { fontSize: 28, fontWeight: '900' },
+  tableStatusText: { fontSize: 10, fontWeight: '900' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '90%', backgroundColor: '#FDFBEB', borderWidth: 4, padding: 25, borderColor: '#000' },
+  modalTitle: { fontSize: 26, fontWeight: '900', textAlign: 'center', marginBottom: 20 },
+  orderDetailBox: { backgroundColor: '#fff', borderWidth: 2, padding: 10, marginBottom: 20 },
+  detailHeader: { fontWeight: '900', fontSize: 12, marginBottom: 10, color: '#666' },
+  orderRow: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#eee', paddingVertical: 8 },
+  orderName: { fontWeight: '800', fontSize: 14 },
+  orderStatus: { fontWeight: '900', fontSize: 10 },
+  noOrders: { textAlign: 'center', marginVertical: 20, fontWeight: '700', color: '#999' },
+  actionBtn: { backgroundColor: '#000', padding: 18, borderWidth: 2, borderColor: '#000', alignItems: 'center', marginTop: 10 },
+  actionBtnText: { color: '#fff', fontWeight: '900' },
+  closeBtn: { marginTop: 20, alignItems: 'center' },
+  closeText: { fontWeight: '900', textDecorationLine: 'underline', color: COLORS.secondary },
+  orderListScroll: { maxHeight: 200, marginVertical: 15, borderWidth: 1, borderColor: '#ccc', padding: 5 },
+  orderDetailRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  orderNameText: { fontWeight: '900', fontSize: 14 },
+  badgeRow: { flexDirection: 'row', gap: 5, marginTop: 4 },
+  miniBadge: { fontSize: 9, fontWeight: '900', paddingHorizontal: 4, paddingVertical: 2, borderWidth: 1 },
+  paid: { backgroundColor: '#C1E1C1', borderColor: 'green' },
+  unpaid: { backgroundColor: '#FFD1D1', borderColor: 'red' },
+  served: { backgroundColor: '#E0E0E0', borderColor: '#333' },
+  pending: { backgroundColor: '#FDFD96', borderColor: '#999' },
+  qtyText: { fontWeight: '900', color: COLORS.primary },
+  warningBox: { backgroundColor: '#fff', borderWidth: 3, borderColor: '#000', padding: 15, marginTop: 10 },
+  warningTitle: { fontWeight: '900', fontSize: 12, color: 'red', marginBottom: 5 },
+  warningText: { fontWeight: '700', fontSize: 11, color: '#333' },
+  actionBtn: { backgroundColor: '#000', padding: 18, alignItems: 'center', marginTop: 10, borderWidth: 3, borderColor: '#000' },
+  actionBtnText: { color: '#fff', fontWeight: '900', fontSize: 16 },
+  statusInfo: { backgroundColor: '#eee', borderColor: '#000', color: '#000' },
+});
