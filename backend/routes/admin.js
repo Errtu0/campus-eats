@@ -3,102 +3,136 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const QRCode = require('qrcode');
-// --- OVERVIEW & HISTORY ---
-router.get('/dashboard-data', async (req, res) => {
-  try {
-    const restaurantId = parseInt(req.query.restaurantId);
-    if (!restaurantId) return res.status(400).json({ error: "Missing restaurantId" });
+const verifyToken = require('../middleware/authMiddleware');
+const { isAdmin } = require('../middleware/roleMiddleware');
 
-    // 1. Menu and Staff filtered by Restaurant
-    const menu = await prisma.menuItem.findMany({ 
-      where: { restaurant_id: restaurantId },
-      orderBy: { name: 'asc' } 
-    });
-    
-    const staff = await prisma.user.findMany({ 
-      where: { role: 'STAFF', restaurant_id: restaurantId } 
-    });
+// Secure all routes in this file
+router.use(verifyToken);
+router.use(isAdmin);
 
-    const inventory = await prisma.inventoryItem.findMany({ 
-      where: { restaurant_id: restaurantId },
-      orderBy: { name: 'asc' } 
-    });
+// --- OVERVIEW & HISTORY (DASHBOARD DATA) ---
+  router.get('/dashboard-data', async (req, res) => {
+    try {
+      const restaurantId = parseInt(req.query.restaurantId);
+      if (!restaurantId) return res.status(400).json({ error: "Missing restaurantId" });
 
-    // 2. Coupons (Database calls them Coupon, Frontend calls them Promo)
-    const coupons = await prisma.coupon.findMany({
-      where: { restaurant_id: restaurantId } // Ensure your schema has restaurant_id on Coupon
-    });
+      // 0. Ownership Check
+      const checkOwnership = await prisma.restaurant.findFirst({
+        where: { id: restaurantId, admin_id: req.user.id }
+      });
 
-    // 3. Tables (Needed for Density Calculation)
-    const tables = await prisma.table.findMany({
-      where: { restaurant_id: restaurantId }
-    });
-
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const dailyOrders = await prisma.order.findMany({
-      where: { 
-        restaurant_id: restaurantId,
-        created_at: { gte: startOfDay } 
+      if (!checkOwnership) {
+        return res.status(403).json({ error: "Access Denied: You do not own this restaurant." });
       }
-    });
-    
-    const totalRevenue = dailyOrders.reduce((sum, order) => sum + order.total_amount, 0);
 
-    const history = await prisma.order.findMany({
-      where: { restaurant_id: restaurantId },
-      take: 30,
-      orderBy: { created_at: 'desc' },
-      include: { 
-        customer: { select: { username: true } },
-        items: { include: { item: true } }
-      }
-    });
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
 
-    const activeSessions = await prisma.session.findMany({
-      where: { 
-        is_active: true,
-        table: { restaurant_id: restaurantId } // Filter sessions by restaurant's tables
-      },
-      include: { 
-        table: true,
-        orders: {
-          include: {
-            items: { 
-              include: { 
-                item: true,
-                paid_by: { select: { username: true } } 
-              } 
+      // 1. Fetch Today's Orders for Revenue
+      const dailyOrders = await prisma.order.findMany({
+        where: { 
+          restaurant_id: restaurantId,
+          created_at: { gte: startOfDay } 
+        },
+        include: {
+          items: { include: { item: true } },
+          coupon: true
+        }
+      });
+
+      // 2. Manual Revenue Calculation (Sums up item prices since total_amount column is 0)
+      let calculatedRevenue = 0;
+      dailyOrders.forEach(order => {
+        let orderSubtotal = (order.items || []).reduce((sum, i) => {
+          return sum + (Number(i.item?.price || 0) * (i.quantity || 1));
+        }, 0);
+
+        if (order.coupon) {
+          orderSubtotal = orderSubtotal * (1 - (order.coupon.discount_value / 100));
+        }
+        calculatedRevenue += orderSubtotal;
+      });
+
+      // 3. Parallel fetching of all other sections to prevent 304/Timeout issues
+      const [menu, staff, inventory, coupons, tables, densityLogs, history, activeSessions] = await Promise.all([
+        prisma.menuItem.findMany({ 
+          where: { restaurant_id: restaurantId },
+          orderBy: { name: 'asc' } 
+        }),
+        prisma.user.findMany({ 
+          where: { role: 'STAFF', restaurant_id: restaurantId } 
+        }),
+        prisma.inventoryItem.findMany({ 
+          where: { restaurant_id: restaurantId },
+          orderBy: { name: 'asc' } 
+        }),
+        prisma.coupon.findMany({
+          where: { restaurant_id: restaurantId }
+        }),
+        prisma.table.findMany({
+          where: { restaurant_id: restaurantId }
+        }),
+        prisma.densityLog.findMany({
+          where: { restaurant_id: restaurantId },
+          orderBy: { recorded_at: 'desc' },
+          take: 20
+        }),
+        prisma.order.findMany({
+          where: { restaurant_id: restaurantId },
+          take: 30,
+          orderBy: { created_at: 'desc' },
+          include: { 
+            customer: { select: { username: true } },
+            items: { include: { item: true } },
+            coupon: true
+          }
+        }),
+        prisma.session.findMany({
+          where: { 
+            is_active: true,
+            table: {
+              restaurant_id: Number(restaurantId) // Force Number type
+            }
+          },
+          include: { 
+            table: true, 
+            orders: {
+              include: {
+                items: { 
+                  include: { 
+                    item: true, 
+                    paid_by: { select: { username: true } } 
+                  } 
+                }
+              }
             }
           }
-        }
-      }
-    });
+        })
+      ]);
 
-    // Return everything the frontend tabs need
-    res.json({ 
-      menu, 
-      staff, 
-      history, 
-      activeSessions, 
-      totalRevenue, 
-      inventory, 
-      coupons, 
-      tables 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+      // Return the full payload
+      res.json({ 
+        menu, 
+        staff, 
+        inventory, 
+        coupons, 
+        tables, 
+        history, 
+        activeSessions, 
+        totalRevenue: Number(calculatedRevenue.toFixed(2)), 
+        densityLogs 
+      });
 
-// ADD THIS ROUTE FOR PROMOTIONS (COUPONS)
+    } catch (error) {
+      console.error("Dashboard Data Error:", error);
+      res.status(500).json({ error: "Failed to fetch dashboard data" });
+    }
+  });
+
+// --- PROMOTIONS (COUPONS) ---
 router.post('/coupons', async (req, res) => {
   const { code, discount_value, restaurant_id } = req.body;
-  
   try {
-    // We need an admin_id to satisfy the DB schema. 
-    // Let's find the admin associated with this restaurant.
     const restaurant = await prisma.restaurant.findUnique({
       where: { id: parseInt(restaurant_id) },
       select: { admin_id: true }
@@ -111,7 +145,7 @@ router.post('/coupons', async (req, res) => {
         code: code.toUpperCase(),
         discount_value: parseFloat(discount_value),
         restaurant_id: parseInt(restaurant_id),
-        admin_id: restaurant.admin_id, // Link to the owner
+        admin_id: restaurant.admin_id,
         is_active: true
       }
     });
@@ -135,28 +169,67 @@ router.patch('/coupons/:id/status', async (req, res) => {
   }
 });
 
+// ADDED: Fix for the 404 error when deleting coupons
+router.delete('/coupons/:id', async (req, res) => {
+  try {
+    await prisma.coupon.delete({
+      where: { id: parseInt(req.params.id) }
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Could not delete coupon. It may not exist." });
+  }
+});
+
 // --- STAFF MANAGEMENT ---
 router.post('/staff', async (req, res) => {
-  const { username, password, phone_number } = req.body;
+  const { username, password, phone_number, email, restaurant_id } = req.body;
   try {
     const newStaff = await prisma.user.create({
-      data: { username, password_hash: password, phone_number, role: 'STAFF' }
+      data: { 
+        username, 
+        password_hash: password, 
+        phone_number, 
+        email,
+        role: 'STAFF',
+        restaurant_id: parseInt(restaurant_id)
+      }
     });
     res.json(newStaff);
-  } catch (error) { res.status(400).json({ error: "Username already exists" }); }
+  } catch (error) { 
+    console.error(error);
+    res.status(400).json({ error: "Username or Phone already exists." }); 
+  }
 });
 
 router.delete('/staff/:id', async (req, res) => {
-  await prisma.user.delete({ where: { id: parseInt(req.params.id) } });
-  res.json({ success: true });
+  try {
+    await prisma.user.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete staff." });
+  }
 });
 
-router.delete('/menu/:id', async (req, res) => {
-  await prisma.menuItem.delete({ where: { id: parseInt(req.params.id) } });
-  res.json({ success: true });
+router.patch('/staff/:id', async (req, res) => {
+  const { username, phone_number, email, password_hash } = req.body;
+  try {
+    const updated = await prisma.user.update({
+      where: { id: parseInt(req.params.id) },
+      data: { 
+        username, 
+        phone_number, 
+        email,
+        password_hash 
+      }
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// --- INVENTORY MANAGEMENT ---
+// --- MENU MANAGEMENT ---
 router.post('/menu', async (req, res) => {
   const { name, price, restaurant_id } = req.body;
   try {
@@ -171,7 +244,6 @@ router.post('/menu', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Update Menu Item
 router.patch('/menu/:id', async (req, res) => {
   const { name, price, stock_quantity } = req.body;
   try {
@@ -189,25 +261,16 @@ router.patch('/menu/:id', async (req, res) => {
   }
 });
 
-// Update Staff Member
-router.patch('/staff/:id', async (req, res) => {
-  const { username, phone_number, password_hash } = req.body;
+router.delete('/menu/:id', async (req, res) => {
   try {
-    const updated = await prisma.user.update({
-      where: { id: parseInt(req.params.id) },
-      data: { 
-        username, 
-        phone_number, 
-        password_hash // In a real app, hash this first!
-      }
-    });
-    res.json(updated);
+    await prisma.menuItem.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Failed to delete menu item." });
   }
 });
 
-
+// --- INVENTORY MANAGEMENT ---
 router.post('/inventory', async (req, res) => {
   const { name, amount, unit, min_limit, restaurant_id } = req.body;
   try {
@@ -226,7 +289,6 @@ router.post('/inventory', async (req, res) => {
   }
 });
 
-// Update Inventory (Restock or Change Limit)
 router.patch('/inventory/:id', async (req, res) => {
   const { name, amount, unit, min_limit } = req.body;
   try {
@@ -245,7 +307,6 @@ router.patch('/inventory/:id', async (req, res) => {
   }
 });
 
-// Delete Inventory Item
 router.delete('/inventory/:id', async (req, res) => {
   try {
     await prisma.inventoryItem.delete({ where: { id: parseInt(req.params.id) } });
@@ -255,7 +316,7 @@ router.delete('/inventory/:id', async (req, res) => {
   }
 });
 
-
+// --- INGREDIENTS & LOGIC ---
 router.post('/menu-ingredients', async (req, res) => {
   const { menuItemId, inventoryId, quantityUsed } = req.body;
   try {
@@ -272,7 +333,6 @@ router.post('/menu-ingredients', async (req, res) => {
   }
 });
 
-// Get ingredients for a specific menu item
 router.get('/menu/:id/ingredients', async (req, res) => {
   try {
     const ingredients = await prisma.menuItemIngredient.findMany({
@@ -285,6 +345,7 @@ router.get('/menu/:id/ingredients', async (req, res) => {
   }
 });
 
+// --- QR & TABLES ---
 router.get('/tables/:id/qrcode', async (req, res) => {
   try {
     const tableId = parseInt(req.params.id);
@@ -295,27 +356,23 @@ router.get('/tables/:id/qrcode', async (req, res) => {
 
     if (!table) return res.status(404).json({ error: "Table not found" });
 
-    // This is the data the phone's camera will read
-    // We use a deep link format so the CampusEats app opens automatically
     const qrData = `campuseats://join?restaurantId=${table.restaurant_id}&tableId=${table.id}&qrId=${table.qr_code_id}`;
-
-    // Generate the QR as a Base64 Data URL (Image)
     const qrImage = await QRCode.toDataURL(qrData);
 
     res.json({ 
       tableNumber: table.table_number,
-      qrCodeImage: qrImage // This is a long string starting with "data:image/png;base64..."
+      qrCodeImage: qrImage 
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
+// --- BRANCH MANAGEMENT ---
 router.get('/my-restaurants', async (req, res) => {
-  const { adminId } = req.query;
   try {
     const restaurants = await prisma.restaurant.findMany({
-      where: { admin_id: parseInt(adminId) }
+      where: { admin_id: req.user.id }
     });
     res.json(restaurants);
   } catch (error) {
@@ -323,16 +380,32 @@ router.get('/my-restaurants', async (req, res) => {
   }
 });
 
-router.post('/coupons/verify', async (req, res) => {
-  const { code, restaurantId } = req.body;
-  
-  // LOG THE REQUEST
-  console.log(`🔍 Promo Attempt: Code [${code}] for Restaurant ID [${restaurantId}]`);
+router.post('/register-branch', async (req, res) => {
+  const { name, address } = req.body;
+  const adminId = req.user.id;
 
   try {
-    if (!code || !restaurantId) {
-       return res.status(400).json({ error: "Code and Restaurant ID are required" });
-    }
+    const newBranch = await prisma.restaurant.create({
+      data: {
+        name,
+        address,
+        admin_id: adminId,
+        total_capacity: 50,
+        current_occupancy: 0 
+      }
+    });
+    res.status(201).json(newBranch);
+  } catch (error) {
+    console.error("PRISMA ERROR:", error);
+    res.status(500).json({ error: "Failed to create branch. Check required fields." });
+  }
+});
+
+// --- UTILS ---
+router.post('/coupons/verify', async (req, res) => {
+  const { code, restaurantId } = req.body;
+  try {
+    if (!code || !restaurantId) return res.status(400).json({ error: "Missing data" });
 
     const coupon = await prisma.coupon.findFirst({
       where: {
@@ -342,16 +415,11 @@ router.post('/coupons/verify', async (req, res) => {
       }
     });
 
-    if (!coupon) {
-      console.log("❌ Coupon not found or inactive");
-      return res.status(404).json({ error: "Invalid or expired promo code" });
-    }
-
-    console.log("✅ Coupon valid:", coupon.discount_value + "%");
+    if (!coupon) return res.status(404).json({ error: "Invalid promo code" });
     res.json(coupon);
   } catch (error) {
-    console.error("🔥 Server Error:", error.message);
-    res.status(500).json({ error: "Server error during verification" });
+    res.status(500).json({ error: "Verification failed" });
   }
 });
+
 module.exports = router;

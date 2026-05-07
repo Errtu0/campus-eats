@@ -24,20 +24,24 @@ router.get('/', async (req, res) => {
 
 // 1. Initialize/Open a Table (The first person to scan)
 router.post('/open-session', async (req, res) => {
-  const { tableId, userId, currentRestaurantId } = req.body;
+  // 1. Match the key name 'restaurantId' sent by the frontend
+  const { tableId, userId, restaurantId } = req.body; 
 
   try {
     const table = await prisma.table.findUnique({ 
-      where: { id: tableId },
+      where: { id: parseInt(tableId) },
       include: { restaurant: true } 
     });
     
     if (!table) return res.status(404).json({ error: "Table not found." });
     
-    if (table.restaurant_id !== currentRestaurantId) {
+    // 2. Add parseInt here to prevent "2" !== 2 mismatch errors
+    if (table.restaurant_id !== parseInt(restaurantId)) {
+      console.log(`403 Denied: Table is for Rest #${table.restaurant_id}, Request sent Rest #${restaurantId}`);
       return res.status(403).json({ error: "This table belongs to a different restaurant branch!" });
     }
     
+    // Check Statuses
     if (table.status === 'OCCUPIED') {
       return res.status(400).json({ 
         message: "TABLE_OCCUPIED", 
@@ -54,17 +58,16 @@ router.post('/open-session', async (req, res) => {
     // Start the session
     const session = await prisma.session.create({
       data: {
-        table_id: tableId,
+        table_id: parseInt(tableId),
         join_code: joinCode,
         is_active: true
       }
     });
 
     // --- DENSITY LOGIC ---
-    // Update Table status AND Increment Restaurant occupancy by 1
     await prisma.$transaction([
       prisma.table.update({
-        where: { id: tableId },
+        where: { id: parseInt(tableId) },
         data: { status: 'OCCUPIED' }
       }),
       prisma.restaurant.update({
@@ -73,8 +76,14 @@ router.post('/open-session', async (req, res) => {
       })
     ]);
 
-    res.json({ message: "Session Started", session, restaurantName: table.restaurant.name, restaurantId: table.restaurant.id });
+    res.json({ 
+      message: "Session Started", 
+      session, 
+      restaurantName: table.restaurant.name, 
+      restaurantId: table.restaurant.id 
+    });
   } catch (error) {
+    console.error("Open Session Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, SafeAreaView } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ADMIN_URL } from '../../src/config';
 import { COLORS, GLOBAL_STYLES } from '../../src/styles/theme';
-import { Utensils, Users, Package, MonitorDot, History, LayoutDashboard, LogOut , Ticket} from 'lucide-react-native';
+import { Utensils, Users, Package, MonitorDot, History, LogOut, Ticket } from 'lucide-react-native';
+
+// Import your CustomAlert
+import CustomAlert from '../../components/CustomAlert'; 
 
 // Tab Imports
 import MenuTab from './tabs/MenuTab';
@@ -14,32 +18,122 @@ import PromotionTab from './tabs/PromotionTab';
 
 export default function AdminDashboard({ navigation, route }) {
   const { restaurant, user } = route.params;
-  const [view, setView] = useState('MENU'); // Default tab
+  const [view, setView] = useState('MENU');
+  const [loading, setLoading] = useState(true);
+
+  // --- CENTRAL STATE ---
+  const [dashboardData, setDashboardData] = useState({
+    menu: [],
+    staff: [],
+    inventory: [],
+    activeSessions: [],
+    coupons: [],
+    history: [],
+    totalRevenue: 0,
+    densityLogs: []
+  });
+
+  // --- CUSTOM ALERT STATE ---
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({ title: '', message: '', type: 'error' });
+
+  const showAlert = (title, message, type = 'error') => {
+    setAlertConfig({ title, message, type });
+    setAlertVisible(true);
+  };
+
+  const handleAdminLogout = async () => {
+    try {
+      await AsyncStorage.multiRemove(['userToken', 'userData']);
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
+    } catch (e) {
+      console.error("Logout Error", e);
+    }
+  };
+
+  const fetchAllData = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      const response = await fetch(`${ADMIN_URL}/dashboard-data?restaurantId=${restaurant.id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+      
+
+      if (response.ok) {
+        setDashboardData(data);
+        activeSessions: data.activeSessions || [] // Ensure this is always an array
+      } else {
+        // Use CustomAlert instead of Alert.alert
+        showAlert("Security Error", data.error || "Session expired");
+        // Optionally redirect on close if you want to be strict
+      }
+    } catch (e) {
+      console.error("Dashboard Fetch Error:", e);
+      showAlert("System Error", "Could not reach the server.");
+    } finally {
+      setLoading(false);
+    }
+  }, [restaurant.id]);
+
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]);
+
+  if (loading) {
+    return (
+      <View style={[GLOBAL_STYLES.container, { justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={{ textAlign: 'center', marginTop: 10, fontWeight: '700' }}>Loading Control Panel...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* COMMAND HEADER */}
+      {/* CUSTOM ALERT COMPONENT */}
+      <CustomAlert
+        visible={alertVisible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => {
+          setAlertVisible(false);
+          if (alertConfig.title === "Security Error") navigation.replace('SignIn');
+        }}
+        primaryColor={COLORS.primary}
+        secondaryColor={COLORS.secondary}
+        backgroundColor={COLORS.background}
+      />
+
       <View style={styles.header}>
         <View>
           <Text style={styles.resName}>{restaurant.name}</Text>
           <Text style={styles.adminLabel}>Managing as {user.username}</Text>
         </View>
-        <TouchableOpacity onPress={() => navigation.replace('WelcomeScreen')}> 
+        <TouchableOpacity onPress={handleAdminLogout} style={styles.logoutBtn}> 
           <LogOut color={COLORS.secondary} size={24} />
         </TouchableOpacity>
       </View>
 
-      {/* DYNAMIC CONTENT AREA */}
       <View style={styles.content}>
-        {view === 'MENU' && <MenuTab restaurantId={restaurant.id} />}
-        {view === 'STAFF' && <StaffTab restaurantId={restaurant.id} />}
-        {view === 'INVENTORY' && <InventoryTab restaurantId={restaurant.id} />}
-        {view === 'SESSIONS' && <LiveSessionsTab restaurantId={restaurant.id} />}
-        {view === 'PROMO' && <PromotionTab restaurantId={restaurant.id} />}
-        {view === 'HISTORY' && <LogsTab restaurantId={restaurant.id} />}
+        {view === 'MENU' && <MenuTab restaurantId={restaurant.id} data={dashboardData.menu} refresh={fetchAllData} />}
+        {view === 'STAFF' && <StaffTab restaurantId={restaurant.id} data={dashboardData.staff} refresh={fetchAllData} />}
+        {view === 'INVENTORY' && <InventoryTab restaurantId={restaurant.id} data={dashboardData.inventory} refresh={fetchAllData} />}
+        {view === 'SESSIONS' && <LiveSessionsTab restaurantId={restaurant.id} 
+            sessions={dashboardData.activeSessions} // <--- WAS LIKELY dashboardData.sessions
+            tables={dashboardData.tables} 
+            refresh={fetchAllData} />}
+        {view === 'PROMO' && <PromotionTab restaurantId={restaurant.id} data={dashboardData.coupons} refresh={fetchAllData} />}
+        {view === 'HISTORY' && <LogsTab data={dashboardData.history} revenue={dashboardData.totalRevenue} densityLogs={dashboardData.densityLogs} />}
       </View>
 
-      {/* NEOBRUTALIST BOTTOM NAV */}
       <View style={styles.bottomNav}>
         <NavButton id="MENU" icon={Utensils} label="Menu" active={view} setter={setView} />
         <NavButton id="STAFF" icon={Users} label="Staff" active={view} setter={setView} />
@@ -71,12 +165,13 @@ const styles = StyleSheet.create({
   resName: { fontSize: 20, fontWeight: '900', textTransform: 'uppercase' },
   adminLabel: { fontSize: 11, fontWeight: '700', color: '#666' },
   content: { flex: 1 },
+  logoutBtn: { padding: 5 },
   bottomNav: { 
-    position: 'absolute', // Fix to bottom
+    position: 'absolute',
     bottom: 0,
     flexDirection: 'row', 
     height: 90, 
-    backgroundColor: '#FDFBEB', // Match Nav to Creme
+    backgroundColor: '#FDFBEB',
     borderTopWidth: 4, 
     borderColor: '#000', 
     justifyContent: 'space-around', 

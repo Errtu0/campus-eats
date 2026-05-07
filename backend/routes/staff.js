@@ -2,58 +2,69 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-router.get('/dashboard-data', async (req, res) => {
-  const restaurantId = parseInt(req.query.restaurantId);
-  
-  const tables = await prisma.table.findMany({
-    where: { restaurant_id: restaurantId }
-  });
+const { isStaff } = require('../middleware/roleMiddleware'); 
+const verifyToken = require('../middleware/authMiddleware'); 
 
-  const pendingOrders = await prisma.orderItem.findMany({
-    where: {
-      // Logic: Show items that are PAID (need cooking) or READY (need serving)
-      // Remove 'PENDING' because we only want to cook items after they are paid
-      status: { in: ['PAID', 'READY'] }, 
-      order: { session: { table: { restaurant_id: restaurantId } } }
-    },
-    include: {
-      item: true,
-      order: { include: { session: { include: { table: true } } } }
-    }
-  });
+// --- 1. DASHBOARD DATA (Tables & Kitchen Queue) ---
+// We explicitly add verifyToken and isStaff here for absolute security
+router.get('/dashboard-data', verifyToken, isStaff, async (req, res) => {
+  try {
+    const staffRestaurantId = req.user.restaurant_id;
 
-  res.json({ tables, pendingOrders });
+    const [tables, pendingOrders] = await Promise.all([
+      prisma.table.findMany({
+        where: { restaurant_id: staffRestaurantId },
+        orderBy: { table_number: 'asc' }
+      }),
+      prisma.orderItem.findMany({
+        where: {
+          status: { in: ['PAID', 'READY'] },
+          order: { restaurant_id: staffRestaurantId }
+        },
+        include: {
+          item: true,
+          order: { include: { session: { include: { table: true } } } }
+        },
+        orderBy: { order: { created_at: 'asc' } }
+      })
+    ]);
+
+    res.json({ tables, pendingOrders });
+  } catch (error) {
+    res.status(500).json({ error: "Dashboard fetch failed" });
+  }
 });
 
-router.get('/table-details/:id', async (req, res) => {
+// --- 2. TABLE DETAILS ---
+router.get('/table-details/:id', verifyToken, isStaff, async (req, res) => {
   try {
     const tableId = parseInt(req.params.id);
+    const staffRestaurantId = req.user.restaurant_id;
+
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table || table.restaurant_id !== staffRestaurantId) {
+      return res.status(403).json({ error: "Unauthorized access to this table." });
+    }
+
     const session = await prisma.session.findFirst({
       where: { table_id: tableId, is_active: true },
       include: {
-        orders: {
-          include: {
-            items: { include: { item: true } }
-          }
-        }
+        orders: { include: { items: { include: { item: true } } } }
       }
     });
 
     if (!session) return res.json({ active: false });
 
     const allItems = session.orders.flatMap(order => order.items);
-
-    // Validation for "Can we close this table?"
-    // MUST be paid AND status must be 'SERVED'
     const unpaidItems = allItems.filter(item => !item.paid_by_user_id);
     const unservedItems = allItems.filter(item => item.status !== 'SERVED');
-
-    const canClear = allItems.length > 0 && unpaidItems.length === 0 && unservedItems.length === 0;
+    
+    const canClear = allItems.length === 0 || (unpaidItems.length === 0 && unservedItems.length === 0);
 
     res.json({
       active: true,
-      items: allItems, // Frontend will loop this
-      canClear: canClear,
+      items: allItems,
+      canClear,
       unpaidCount: unpaidItems.length,
       unservedCount: unservedItems.length
     });
@@ -62,80 +73,93 @@ router.get('/table-details/:id', async (req, res) => {
   }
 });
 
-// CRITICAL UPDATE: Table Clearing + Density Logging
-router.patch('/table-status', async (req, res) => {
+// --- 3. UPDATE TABLE STATUS ---
+router.patch('/table-status', verifyToken, isStaff, async (req, res) => {
   const { tableId, status } = req.body;
+  const staffRestaurantId = req.user.restaurant_id;
+
   try {
     const tId = parseInt(tableId);
+    const table = await prisma.table.findUnique({ where: { id: tId } });
 
-    // 1. If we are clearing a table, handle Density Logs and Occupancy
+    if (!table || table.restaurant_id !== staffRestaurantId) {
+      return res.status(403).json({ error: "Unauthorized table update" });
+    }
+
     if (status === 'EMPTY' || status === 'CLEANING') {
       const activeSession = await prisma.session.findFirst({
-        where: { table_id: tId, is_active: true },
-        include: { table: true }
+        where: { table_id: tId, is_active: true }
       });
 
       if (activeSession) {
-        // Fetch current occupancy for the snapshot
-        const restaurant = await prisma.restaurant.findUnique({
-          where: { id: activeSession.table.restaurant_id }
-        });
-
-        // Create Density Log Snapshot
-        await prisma.densityLog.create({
-          data: {
-            restaurant_id: activeSession.table.restaurant_id,
-            peak_occupancy: restaurant.current_occupancy,
-          }
-        });
-
-        // Decrement building occupancy (assuming 1 session = 1 or more people)
-        // You can fine-tune this to decrement by the specific number of users in that session
-        await prisma.restaurant.update({
-          where: { id: activeSession.table.restaurant_id },
-          data: { current_occupancy: { decrement: 1 } } 
-        });
-
-        // Close Session
-        await prisma.session.updateMany({
-          where: { table_id: tId, is_active: true },
-          data: { is_active: false, end_time: new Date() }
-        });
+        await prisma.$transaction([
+          prisma.restaurant.update({
+            where: { id: staffRestaurantId },
+            data: { current_occupancy: { decrement: 1 } }
+          }),
+          prisma.session.updateMany({
+            where: { table_id: tId, is_active: true },
+            data: { is_active: false, end_time: new Date() }
+          })
+        ]);
       }
     }
 
-    // 2. Update the Table Status
-    await prisma.table.update({
-      where: { id: tId },
-      data: { status: status }
-    });
-
+    await prisma.table.update({ where: { id: tId }, data: { status } });
     res.json({ success: true });
-  } catch (error) { 
-    res.status(500).json({ error: error.message }); 
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
-router.patch('/order-ready', async (req, res) => {
+// --- 4. ORDER READY (The missing kitchen logic) ---
+router.patch('/order-ready', verifyToken, isStaff, async (req, res) => {
   const { orderItemId } = req.body;
+  const staffRestaurantId = req.user.restaurant_id;
+
   try {
-    const item = await prisma.orderItem.update({
-      where: { id: orderItemId },
+    const item = await prisma.orderItem.findUnique({
+      where: { id: parseInt(orderItemId) },
+      include: { order: true }
+    });
+
+    if (!item || item.order.restaurant_id !== staffRestaurantId) {
+      return res.status(403).json({ error: "Unauthorized order update" });
+    }
+
+    const updated = await prisma.orderItem.update({
+      where: { id: parseInt(orderItemId) },
       data: { status: 'READY' }
     });
-    res.json(item);
-  } catch (error) { res.status(500).json({ error: error.message }); }
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-router.patch('/order-served', async (req, res) => {
+// --- 5. ORDER SERVED ---
+router.patch('/order-served', verifyToken, isStaff, async (req, res) => {
   const { orderItemId } = req.body;
+  const staffRestaurantId = req.user.restaurant_id;
+
   try {
-    const item = await prisma.orderItem.update({
-      where: { id: orderItemId },
+    const item = await prisma.orderItem.findUnique({
+      where: { id: parseInt(orderItemId) },
+      include: { order: true }
+    });
+
+    if (!item || item.order.restaurant_id !== staffRestaurantId) {
+      return res.status(403).json({ error: "Unauthorized order update" });
+    }
+
+    const updated = await prisma.orderItem.update({
+      where: { id: parseInt(orderItemId) },
       data: { status: 'SERVED' }
     });
-    res.json(item);
-  } catch (error) { res.status(500).json({ error: error.message }); }
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 module.exports = router;

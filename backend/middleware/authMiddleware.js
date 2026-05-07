@@ -1,7 +1,6 @@
 const jwt = require('jsonwebtoken');
 
 const verifyToken = (req, res, next) => {
-  // Look for token in the Authorization header: "Bearer <token>"
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -11,7 +10,10 @@ const verifyToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // Attach the user data to the request object so routes can use it
+    
+    // --- CRITICAL DEBUG ---
+    console.log("WHAT IS INSIDE THE TOKEN:", decoded); 
+    
     req.user = decoded; 
     next();
   } catch (error) {

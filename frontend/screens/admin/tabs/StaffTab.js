@@ -1,100 +1,198 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator, StyleSheet, Modal, TextInput, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ADMIN_URL } from '../../../src/config';
 import { COLORS, GLOBAL_STYLES } from '../../../src/styles/theme';
-import { PlusCircle, Pencil, Trash2, Users } from 'lucide-react-native';
+import { PlusCircle, Pencil, Trash2 } from 'lucide-react-native';
+import CustomAlert from '../../../components/CustomAlert'; 
 
-export default function StaffTab({ restaurantId }) {
-  const [staff, setStaff] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function StaffTab({ restaurantId, data, refresh }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [editItem, setEditItem] = useState(null);
-  const [form, setForm] = useState({ username: '', phone: '', password: '' });
+  
+  // Added 'email' to the form state
+  const [form, setForm] = useState({ username: '', email: '', phone: '', password: '' });
+  const PLACEHOLDER_COLOR = "#999";
 
-  useEffect(() => { fetchStaff(); }, [restaurantId]);
+  // --- CUSTOM ALERT STATE ---
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({ title: '', message: '', type: 'info', onConfirm: null });
 
-  const fetchStaff = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${ADMIN_URL}/dashboard-data?restaurantId=${restaurantId}`);
-      const data = await res.json();
-      setStaff((data.staff || []).filter(s => s.restaurant_id === restaurantId));
-    } catch (e) { Alert.alert("Error", "Could not load staff."); }
-    finally { setLoading(false); }
+  const showTabAlert = (title, message, type = 'info', onConfirm = null) => {
+    setAlertConfig({ title, message, type, onConfirm });
+    setAlertVisible(true);
   };
 
   const handleSave = async () => {
     const method = editItem ? 'PATCH' : 'POST';
     const url = editItem ? `${ADMIN_URL}/staff/${editItem.id}` : `${ADMIN_URL}/staff`;
+    
     try {
+      const token = await AsyncStorage.getItem('userToken');
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, restaurant_id: restaurantId }),
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ 
+          username: form.username,
+          email: form.email, // Sent to backend
+          phone_number: form.phone,
+          password: form.password, 
+          restaurant_id: restaurantId 
+        }),
       });
+
+      const resData = await res.json();
+
       if (res.ok) {
         setModalVisible(false);
-        fetchStaff();
+        refresh();
+        showTabAlert("Success", editItem ? "Staff updated!" : "Staff member added!", "success");
+      } else {
+        showTabAlert("Error", resData.error || "Save failed");
       }
-    } catch (e) { Alert.alert("Error", "Save failed"); }
+    } catch (e) { 
+      showTabAlert("Error", "Server unreachable"); 
+    }
   };
 
   const openModal = (item = null) => {
     setEditItem(item);
-    setForm(item ? { username: item.username, phone: item.phone_number, password: '' } : { username: '', phone: '', password: '' });
+    setForm(item ? 
+      { username: item.username, email: item.email || '', phone: item.phone_number, password: '' } : 
+      { username: '', email: '', phone: '', password: '' }
+    );
     setModalVisible(true);
   };
 
-  const handleDelete = (id) => {
-    Alert.alert("Delete Staff", "Are you sure?", [
-      { text: "Cancel" },
-      { text: "Delete", style: 'destructive', onPress: async () => {
-          await fetch(`${ADMIN_URL}/staff/${id}`, { method: 'DELETE' });
-          fetchStaff();
-      }}
-    ]);
+  const confirmDelete = (id) => {
+      // Explicitly set all keys to ensure the state update is "fresh"
+      setAlertConfig({
+        title: "Delete Staff",
+        message: "Are you sure you want to remove this staff member?",
+        type: "warning",
+        onConfirm: async () => {
+          setAlertVisible(false); 
+          await performDelete(id);
+        }
+      });
+      // Use a slight timeout if the modal is flickering, 
+      // but usually setting true here is enough.
+      setAlertVisible(true);
+    };
+
+  const performDelete = async (id) => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      const res = await fetch(`${ADMIN_URL}/staff/${id}`, { 
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        refresh();
+      } else {
+        showTabAlert("Error", "Could not remove staff member.");
+      }
+    } catch (e) {
+      showTabAlert("Error", "Server error during deletion.");
+    }
   };
 
   return (
     <View style={styles.tabContainer}>
-      {loading ? <ActivityIndicator color={COLORS.primary} style={{marginTop: 50}} /> : (
-        <FlatList
-          data={staff}
-          contentContainerStyle={{ paddingBottom: 100 }}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <View style={GLOBAL_STYLES.card}>
-              <View style={styles.itemRow}>
-                <View>
-                  <Text style={styles.itemName}>{item.username}</Text>
-                  <Text style={styles.itemSub}>{item.phone_number || 'No Phone'}</Text>
-                </View>
-                <View style={styles.actionGroup}>
-                  <TouchableOpacity style={styles.iconBox} onPress={() => openModal(item)}><Pencil size={18} color={COLORS.secondary} /></TouchableOpacity>
-                  <TouchableOpacity style={styles.iconBox} onPress={() => handleDelete(item.id)}><Trash2 size={18} color="red" /></TouchableOpacity>
-                </View>
+      <CustomAlert
+      visible={alertVisible}
+      title={alertConfig.title}
+      message={alertConfig.message}
+      onClose={() => setAlertVisible(false)}
+      onConfirm={alertConfig.onConfirm}
+      primaryColor={COLORS.primary}
+      secondaryColor={COLORS.secondary}
+      backgroundColor={COLORS.background}
+      />
+
+      <FlatList
+        data={data}
+        contentContainerStyle={{ paddingBottom: 160 }}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => (
+          <View style={GLOBAL_STYLES.card}>
+            <View style={styles.itemRow}>
+              <View>
+                <Text style={styles.itemName}>{item.username}</Text>
+                <Text style={styles.itemSub}>{item.email || 'No Email'}</Text>
+                <Text style={[styles.itemSub, { fontSize: 10 }]}>{item.phone_number || 'No Phone'}</Text>
+              </View>
+              <View style={styles.actionGroup}>
+                <TouchableOpacity style={styles.iconBox} onPress={() => openModal(item)}>
+                  <Pencil size={18} color={COLORS.secondary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconBox} onPress={() => confirmDelete(item.id)}>
+                  <Trash2 size={18} color="red" />
+                </TouchableOpacity>
               </View>
             </View>
-          )}
-        />
-      )}
+          </View>
+        )}
+      />
 
-      {/* FIXED ADD BUTTON */}
       <TouchableOpacity style={styles.fixedAddBtn} onPress={() => openModal()}>
         <PlusCircle color="#fff" size={24} />
         <Text style={styles.addBtnText}>ADD STAFF</Text>
       </TouchableOpacity>
 
-      {/* MODAL */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>{editItem ? 'EDIT STAFF' : 'ADD STAFF'}</Text>
-            <TextInput placeholder="Username" style={styles.input} value={form.username} onChangeText={t => setForm({...form, username: t})} />
-            <TextInput placeholder="Phone Number" style={styles.input} value={form.phone} onChangeText={t => setForm({...form, phone: t})} />
-            {!editItem && <TextInput placeholder="Password" style={styles.input} secureTextEntry value={form.password} onChangeText={t => setForm({...form, password: t})} />}
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}><Text style={styles.saveBtnText}>SAVE</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => setModalVisible(false)}><Text style={styles.cancelText}>Cancel</Text></TouchableOpacity>
+            
+            <TextInput 
+              placeholder="Username" 
+              placeholderTextColor={PLACEHOLDER_COLOR}
+              style={styles.input} 
+              value={form.username} 
+              onChangeText={t => setForm({...form, username: t})} 
+            />
+            
+            {/* Added Email Input Field */}
+            <TextInput 
+              placeholder="Email Address" 
+              placeholderTextColor={PLACEHOLDER_COLOR}
+              style={styles.input} 
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={form.email} 
+              onChangeText={t => setForm({...form, email: t})} 
+            />
+            
+            <TextInput 
+              placeholder="Phone Number" 
+              placeholderTextColor={PLACEHOLDER_COLOR}
+              style={styles.input} 
+              value={form.phone} 
+              onChangeText={t => setForm({...form, phone: t})} 
+            />
+            
+            {!editItem && (
+              <TextInput 
+                placeholder="Password" 
+                placeholderTextColor={PLACEHOLDER_COLOR}
+                style={styles.input} 
+                secureTextEntry 
+                value={form.password} 
+                onChangeText={t => setForm({...form, password: t})} 
+              />
+            )}
+            
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+              <Text style={styles.saveBtnText}>SAVE STAFF</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity onPress={() => setModalVisible(false)}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -105,26 +203,15 @@ export default function StaffTab({ restaurantId }) {
 const styles = StyleSheet.create({
   tabContainer: { flex: 1, backgroundColor: '#FDFBEB' },
   itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  itemName: { fontWeight: '900', fontSize: 18 },
-  itemSub: { color: '#666', fontWeight: '700' },
+  itemName: { fontWeight: '900', fontSize: 18, textTransform: 'uppercase' },
+  itemSub: { color: '#666', fontWeight: '700', fontSize: 12 },
   actionGroup: { flexDirection: 'row', gap: 10 },
   iconBox: { padding: 8, borderWidth: 2, borderColor: '#000', backgroundColor: '#fff' },
   fixedAddBtn: {
-    position: 'absolute',
-    bottom: 100, // Just above the 90px Nav Bar
-    right: 20,
-    left: 20,
-    backgroundColor: COLORS.primary,
-    height: 60,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#000',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 1,
+    position: 'absolute', bottom: 100, right: 20, left: 20,
+    backgroundColor: COLORS.primary, height: 60, flexDirection: 'row',
+    justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#000',
+    elevation: 5, shadowColor: '#000', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 1,
   },
   addBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, marginLeft: 10 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },

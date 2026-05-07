@@ -18,9 +18,13 @@ if (TWILIO_SID && TWILIO_AUTH) {
 
 const generateToken = (user) => {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' } // Token lasts 7 days
+    { 
+      id: user.id, 
+      role: user.role, 
+      restaurant_id: user.restaurant_id // <--- THIS IS WHAT'S MISSING
+    }, 
+    process.env.JWT_SECRET, 
+    { expiresIn: '7d' }
   );
 };
 
@@ -74,27 +78,46 @@ router.post('/register', async (req, res) => {
 
 // --- VERIFY OTP ROUTE ---
 router.post('/verify-otp', async (req, res) => {
-  const { userId, otp } = req.body;
+  // Destructure whatever name you are sending from the app (userId)
+  const { userId, otp } = req.body; 
+
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    
-    if (otp === '000000') {
-        const token = generateToken(user);
-        return res.json({ message: "LOGIN_SUCCESS", user, token }); // Return Token
+    // 1. Convert to integer immediately
+    const parsedId = parseInt(userId);
+
+    if (isNaN(parsedId)) {
+      return res.status(400).json({ error: "Invalid User ID format" });
     }
 
+    // 2. Query using the correct column name from your DB ('id')
+    const user = await prisma.user.findUnique({ 
+      where: { id: parsedId } 
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: "User not found in database" });
+    }
+
+    // 3. Check OTP
+    if (otp === '000000') {
+      const token = generateToken(user);
+      return res.json({ message: "LOGIN_SUCCESS", user, token });
+    }
+
+    // ... (rest of your Twilio logic)
     const check = await client.verify.v2.services(VERIFY_SERVICE_SID)
       .verificationChecks
       .create({ to: user.phone_number, code: otp });
 
     if (check.status === 'approved') {
       const token = generateToken(user);
-      res.json({ message: "LOGIN_SUCCESS", user, token }); // Return Token
+      res.json({ message: "LOGIN_SUCCESS", user, token });
     } else {
       res.status(401).json({ error: "Invalid or expired code." });
     }
   } catch (error) {
-    res.status(500).json({ error: "Verification failed." });
+    console.error("DETAILED BACKEND ERROR:", error); // Check your terminal for this!
+    res.status(500).json({ error: "Internal server error during verification" });
   }
 });
 

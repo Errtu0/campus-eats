@@ -1,9 +1,14 @@
-const IP = "192.168.0.104";
-const PORT = "3000";
+// Replace this with the URL shown in your ngrok terminal (make sure no trailing slash /)
+const NGROK_URL = "https://marcelino-unritualistic-rubi.ngrok-free.dev"; 
+
+
 export const STRIPE_PUBLISHABLE_KEY = "pk_test_51TD5TDQcKwbP52mLtxNbb7D8YQUjatQCBbJVaaZTSWdAboQ33MupeHfQUCC3lq42goRBlZkOCuAPxJcvAo6oaLEq00r1hQdXrC"; // Replace with your actual Stripe publishable key
 
-// SOCKET_URL must be just the server origin (No /api)
-export const SOCKET_URL = `http://${IP}:${PORT}`; 
+
+
+// SOCKET_URL: For ngrok, it's just the base URL
+// Note: Some Socket.io versions prefer the https protocol for tunnels
+export const SOCKET_URL = NGROK_URL; 
 
 // BASE_URL for your REST fetch calls
 export const BASE_URL = `${SOCKET_URL}/api`; 

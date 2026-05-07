@@ -7,6 +7,7 @@ import {AUTH_URL} from '../src/config';
 import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
 
 import CustomAlert from '../components/CustomAlert';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 
 
@@ -53,40 +54,46 @@ export default function SignInScreen({ navigation }) {
 
 
   const handleSignIn = async () => {
-    if (!username || !password) return showAlert("Error", "Please enter credentials.");
-    try {
-      const response = await fetch(`${AUTH_URL}/login-signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      
-      const data = await response.json();
+  if (!username || !password) return showAlert("Error", "Please enter credentials.");
+  try {
+    const response = await fetch(`${AUTH_URL}/login-signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    
+    const data = await response.json();
 
-      if (response.status === 404 && data.error === "USER_NOT_FOUND") {
-        navigation.navigate('Register');
-        return;
-      }
-
-      if (data.message === "OTP_REQUIRED") {
-        setUserId(data.userId);
-        transitionToOtp(); 
-      } else if (data.message === "LOGIN_SUCCESS") {
-        // Updated Role-Based Navigation
-        if (data.user.role === 'ADMIN') {
-          navigation.replace('RestaurantSelectScreen', { user: data.user });
-        } else if (data.user.role === 'STAFF') {
-          navigation.replace('StaffDashboard', { user: data.user });
-        } else {
-          navigation.replace('RestaurantPicker', { user: data.user });
-        }
-      } else {
-        showAlert("Error", "Invalid username or password.");
-      }
-    } catch (e) {
-      showAlert("Error", "Server unreachable.");
+    if (response.status === 404 && data.error === "USER_NOT_FOUND") {
+      navigation.navigate('Register');
+      return;
     }
-  };
+
+    if (data.message === "OTP_REQUIRED") {
+      setUserId(data.userId);
+      transitionToOtp(); 
+    } else if (data.message === "LOGIN_SUCCESS") {
+      // --- NEW: SAVE TOKEN ---
+      await AsyncStorage.setItem('userToken', data.token);
+      await AsyncStorage.setItem('userData', JSON.stringify(data.user));
+
+      // Navigation Logic (Keep your existing role-based checks)
+      if (data.user.role === 'ADMIN') {
+        navigation.replace('RestaurantSelectScreen', { user: data.user });
+      } else if (data.user.role === 'STAFF') {
+        navigation.replace('StaffDashboard', { user: data.user });
+      } else {
+        navigation.replace('RestaurantPicker', { user: data.user });
+      }
+    } else {
+      showAlert("Error", data.error || "Invalid credentials.");
+    }
+  } catch (e) {
+    console.log("Full Error:", e);
+    // FIX: Use e.message instead of just e to avoid cyclical structure error
+    showAlert("Error", e.message || "Server unreachable.");
+  }
+};
 
 
 
@@ -168,33 +175,41 @@ export default function SignInScreen({ navigation }) {
 
 
 
-const handleVerifyOtp = async () => {
-    if (!otp) return showAlert("Error", "Enter the 6-digit code.");
-    try {
-      const response = await fetch(`${AUTH_URL}/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, otp }),
-      });
-      const data = await response.json();
+const handleVerifyOtp = async (otpCode) => {
+  // Ensure we are getting the string value from state
+  const codeToVerify = typeof otpCode === 'string' ? otpCode : otp;
 
-      if (response.ok && data.message === "LOGIN_SUCCESS") {
-        // Updated Role-Based Navigation
-        if (data.user.role === 'ADMIN') {
-          navigation.replace('RestaurantSelectScreen', { user: data.user });
-        } else if (data.user.role === 'STAFF') {
-          navigation.replace('StaffDashboard', { user: data.user });
-        } else {
-          navigation.replace('Welcome', { user: data.user });
-        }
-      } else {
-        showAlert("Error", "Invalid or expired OTP.");
-      }
-    } catch (e) {
-      showAlert("Error", "Verification failed.");
+  console.log("Attempting verification for User ID:", userId, "with code:", codeToVerify);
+  
+  if (!userId || !codeToVerify) {
+    showAlert("Error", "Missing verification details.");
+    return;
+  }
+
+  try {
+    const response = await fetch(`${AUTH_URL}/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        userId: userId, // The backend handles parseInt(userId) now, so this is safe
+        otp: codeToVerify 
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.message === "LOGIN_SUCCESS") {
+      await AsyncStorage.setItem('userToken', data.token);
+      await AsyncStorage.setItem('userData', JSON.stringify(data.user));
+      navigation.replace(data.user.role === 'ADMIN' ? 'RestaurantSelectScreen' : 'StaffDashboard', { user: data.user });
+    } else {
+      showAlert("Error", data.error || "Invalid OTP.");
     }
-  };
-
+  } catch (e) {
+    console.error("OTP SCREEN CRASH:", e.message);
+    showAlert("System Error", e.message); 
+  }
+};
 
   return (
 
@@ -321,15 +336,10 @@ const handleVerifyOtp = async () => {
            
 
             <TouchableOpacity
-
               style={[GLOBAL_STYLES.button, { backgroundColor: COLORS.secondary }]}
-
-              onPress={handleVerifyOtp}
-
+              onPress={() => handleVerifyOtp(otp)} // <--- PASS THE STATE 'otp' HERE
             >
-
               <Text style={GLOBAL_STYLES.buttonText}>Verify & Continue</Text>
-
             </TouchableOpacity>
 
           </View>

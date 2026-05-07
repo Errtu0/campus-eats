@@ -8,17 +8,28 @@ router.post('/add-item', async (req, res) => {
   const { sessionId, menuItemId, quantity, userId } = req.body;
 
   try {
-    // We check if an 'OPEN' order exists for this session, if not, create one
+    // Check if an 'OPEN' order exists for this session
     let order = await prisma.order.findFirst({
       where: { session_id: sessionId, status: 'PENDING' }
     });
 
     if (!order) {
+      // --- FIX: Lookup the restaurant ID from the Session ---
+      const activeSession = await prisma.session.findUnique({
+        where: { id: sessionId },
+        include: { table: true }
+      });
+
+      if (!activeSession) {
+        return res.status(404).json({ error: "Session not found." });
+      }
+
+      // Create the order using the REAL restaurant_id from the table
       order = await prisma.order.create({
         data: {
           session_id: sessionId,
-          customer_id: userId, // Initial creator
-          restaurant_id: 1,    // This should be dynamic based on the table
+          customer_id: userId,
+          restaurant_id: activeSession.table.restaurant_id, // <--- DYNAMIC FIX
           status: 'PENDING'
         }
       });
@@ -29,12 +40,14 @@ router.post('/add-item', async (req, res) => {
       data: {
         order_id: order.id,
         item_id: menuItemId,
-        quantity: quantity || 1
+        quantity: quantity || 1,
+        status: 'PENDING' // Ensure items start as pending until paid
       }
     });
 
     res.json({ message: "Item added to cart", orderItem });
   } catch (error) {
+    console.error("Add Item Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -12,6 +12,7 @@ const staffRoutes = require('./routes/staff');
 const paymentRoutes = require('./routes/payments');
 const adminRoutes = require('./routes/admin');
 const restaurantRoutes = require('./routes/restaurants');
+const PORT = 3000;
 
 const app = express();
 const server = http.createServer(app); // 3. Create the HTTP server
@@ -22,6 +23,11 @@ const io = new Server(server, {
   }, // Allow mobile app connections
 });
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server is running on port ${PORT}`);
+});
 
 app.use(cors());
 app.use(express.json());

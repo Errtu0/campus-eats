@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
 import { RESTAURANT_URL } from '../src/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LogOut } from 'lucide-react-native';
 
 export default function RestaurantPicker({ navigation, route }) {
   const { user } = route.params;
@@ -20,6 +22,18 @@ export default function RestaurantPicker({ navigation, route }) {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.multiRemove(['userToken', 'userData']);
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
+    } catch (e) {
+      console.error("Logout Error", e);
     }
   };
 
@@ -43,7 +57,12 @@ export default function RestaurantPicker({ navigation, route }) {
 
   return (
     <View style={[GLOBAL_STYLES.container, { flex: 1 }]}>
-      <Text style={styles.title}>CHOOSE A LOCATION</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>CHOOSE A LOCATION</Text>
+        <TouchableOpacity onPress={handleLogout} >
+           <LogOut color={COLORS.secondary} size={24} />
+        </TouchableOpacity>
+      </View>
       
       {loading ? (
         <View style={styles.center}>
@@ -185,5 +204,37 @@ const styles = StyleSheet.create({
     fontSize: 10, 
     fontWeight: 'bold', 
     color: '#888' 
+  },
+
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginTop: 60,
+    marginBottom: 20,
+  },
+  title: { 
+    fontSize: 22, 
+    fontWeight: '900', 
+    color: COLORS.secondary, 
+    letterSpacing: 1,
+    flex: 1
+  },
+  logoutBtn: {
+    backgroundColor: COLORS.primary, // Using your brand Red
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 2,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+    elevation: 2,
+  },
+  logoutText: {
+    color: '#FFF',
+    fontWeight: '900',
+    fontSize: 12,
   }
 });

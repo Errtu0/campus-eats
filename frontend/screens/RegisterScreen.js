@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Animated, Alert } 
 import { AUTH_URL } from '../src/config';
 import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
 import CustomAlert from '../components/CustomAlert';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function RegisterScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -30,37 +31,26 @@ export default function RegisterScreen({ navigation }) {
   };
 
   const handleRegister = async () => {
-    if (!username || !email || !password) {
-      return showAlert("Error", "All fields are required.");
-    }
+  try {
+    const response = await fetch(`${AUTH_URL}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password }),
+    });
 
-    try {
-      const response = await fetch(`${AUTH_URL}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          username: username.trim(), 
-          email: email.trim(), 
-          password: password.trim(), 
-          role: 'CUSTOMER' 
-        }),
-      });
-      
-      const data = await response.json();
+    const data = await response.json();
 
-      if (response.ok) {
-        showAlert("Success", "Account created! You can now sign in.");
-        setTimeout(() => {
-            setAlertVisible(false);
-            navigation.navigate('SignIn');
-        }, 1500);
-      } else {
-        showAlert("Error", data.error || "Username or Email already taken.");
-      }
-    } catch (e) {
-      showAlert("Error", "Connection failed. Please try again.");
+    if (data.message === "REGISTRATION_SUCCESS") {
+      // --- NEW: SAVE TOKEN ---
+      await AsyncStorage.setItem('userToken', data.token);
+      await AsyncStorage.setItem('userData', JSON.stringify(data.user));
+
+      navigation.replace('RestaurantPicker', { user: data.user });
     }
-  };
+  } catch (e) {
+    showAlert("Error", "Registration failed.");
+  }
+};
 
   return (
     <View style={GLOBAL_STYLES.container}>

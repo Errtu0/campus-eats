@@ -1,59 +1,64 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, RefreshControl } from 'react-native';
 import { STAFF_URL } from '../../../src/config';
 import { COLORS } from '../../../src/styles/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // Needed for token
 
-export default function TableMapTab({ restaurantId }) {
-  const [tables, setTables] = useState([]);
-  const [loading, setLoading] = useState(true);
+// Notice: We receive 'tables' and 'refresh' as props now
+export default function TableMapTab({ tables, refresh }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTable, setSelectedTable] = useState(null);
   const [tableDetails, setTableDetails] = useState(null);
-
-  useEffect(() => { fetchData(); }, [restaurantId]);
-
-  const fetchData = async () => {
-    try {
-      const res = await fetch(`${STAFF_URL}/dashboard-data?restaurantId=${restaurantId}`);
-      const data = await res.json();
-      // ISOLATION: Ensure only tables for this restaurantId are shown
-      setTables(data.tables || []);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
-  };
+  const [actionLoading, setActionLoading] = useState(false);
 
   const openTableDetails = async (table) => {
     setSelectedTable(table);
     setModalVisible(true);
     setTableDetails(null); 
     try {
-      const res = await fetch(`${STAFF_URL}/table-details/${table.id}`);
+      const token = await AsyncStorage.getItem('userToken');
+      const res = await fetch(`${STAFF_URL}/table-details/${table.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` } // Added Security
+      });
       const data = await res.json();
       setTableDetails(data);
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error("Details Fetch Error:", e); 
+    }
   };
 
   const updateTableStatus = async (status) => {
+    setActionLoading(true);
     try {
-    const res = await fetch(`${STAFF_URL}/table-status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tableId: selectedTable.id, status }),
-    });
+      const token = await AsyncStorage.getItem('userToken');
+      const res = await fetch(`${STAFF_URL}/table-status`, {
+        method: 'PATCH',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // Added Security
+        },
+        body: JSON.stringify({ tableId: selectedTable.id, status }),
+      });
 
-    if (res.ok && status === 'EMPTY') {
-        // If the table is marked empty, we should ensure the session is closed in DB
-        // You would typically have a backend endpoint to end the session here
+      if (res.ok) {
+        setModalVisible(false);
+        refresh(); // Call the parent's refresh to update the whole UI
+      }
+    } catch (e) { 
+      console.error("Status Update Error:", e); 
+    } finally {
+      setActionLoading(false);
     }
-    
-    setModalVisible(false);
-    fetchData();
-  } catch (e) { console.error(e); }
   };
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.grid} refreshControl={<RefreshControl onRefresh={fetchData} refreshing={loading} tintColor="#000"/>}>
+      <ScrollView 
+        contentContainerStyle={styles.grid} 
+        refreshControl={
+          <RefreshControl onRefresh={refresh} refreshing={false} tintColor="#000"/>
+        }
+      >
         {tables.map(table => (
           <TouchableOpacity 
             key={table.id} 
@@ -68,64 +73,75 @@ export default function TableMapTab({ restaurantId }) {
 
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+          <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>TABLE {selectedTable?.table_number}</Text>
             
-            {!tableDetails ? <ActivityIndicator color="#000" /> : (
-                <View style={{ width: '100%' }}>
-                
-                {/* Order List with status indicators */}
+            {!tableDetails ? (
+              <ActivityIndicator color="#000" size="large" />
+            ) : (
+              <View style={{ width: '100%' }}>
                 <ScrollView style={styles.orderListScroll}>
-                    {tableDetails.items?.map((item, idx) => (
-                        <View key={idx} style={styles.orderDetailRow}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.orderNameText}>{item.item.name} (x{item.quantity})</Text>
-                            
-                            <View style={styles.badgeRow}>
-                            {/* PAYMENT STATUS */}
-                            <Text style={[styles.miniBadge, item.paid_by_user_id ? styles.paid : styles.unpaid]}>
-                                {item.paid_by_user_id ? 'PAID' : 'UNPAID'}
-                            </Text>
-
-                            {/* PREPARATION STATUS */}
-                            <Text style={[styles.miniBadge, styles.statusInfo]}>
-                                {item.status} {/* This will show 'PAID', 'READY', or 'SERVED' */}
-                            </Text>
-                            </View>
+                  {tableDetails.items?.map((item, idx) => (
+                    <View key={idx} style={styles.orderDetailRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.orderNameText}>{item.item.name} (x{item.quantity})</Text>
+                        <View style={styles.badgeRow}>
+                          <Text style={[styles.miniBadge, item.paid_by_user_id ? styles.paid : styles.unpaid]}>
+                            {item.paid_by_user_id ? 'PAID' : 'UNPAID'}
+                          </Text>
+                          <Text style={[styles.miniBadge, styles.statusInfo]}>
+                            {item.status}
+                          </Text>
                         </View>
-                        </View>
-                    ))}
-                    </ScrollView>
-
-                {/* Logic Based Action Button */}
-                {selectedTable?.status === 'CLEANING' ? (
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => updateTableStatus('EMPTY')}>
-                    <Text style={styles.actionBtnText}>MARK AS CLEAN & READY</Text>
-                    </TouchableOpacity>
-                ) : tableDetails.canClear ? (
-                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.secondary }]} onPress={() => updateTableStatus('CLEANING')}>
-                    <Text style={styles.actionBtnText}>FINISH SESSION / CLEAN</Text>
-                    </TouchableOpacity>
-                ) : (
-                    <View style={styles.warningBox}>
-                    <Text style={styles.warningTitle}>CANNOT CLOSE TABLE</Text>
-                    {tableDetails.unpaidCount > 0 && <Text style={styles.warningText}>• {tableDetails.unpaidCount} items are UNPAID</Text>}
-                    {tableDetails.unservedCount > 0 && <Text style={styles.warningText}>• {tableDetails.unservedCount} items are NOT SERVED</Text>}
+                      </View>
                     </View>
+                  ))}
+                  {tableDetails.items?.length === 0 && (
+                    <Text style={styles.noOrders}>No active orders for this session.</Text>
+                  )}
+                </ScrollView>
+
+                {actionLoading ? (
+                  <ActivityIndicator color={COLORS.primary} style={{ margin: 20 }} />
+                ) : (
+                  <>
+                    {selectedTable?.status === 'CLEANING' ? (
+                        <TouchableOpacity style={styles.actionBtn} onPress={() => updateTableStatus('EMPTY')}>
+                          <Text style={styles.actionBtnText}>MARK AS CLEAN & READY</Text>
+                        </TouchableOpacity>
+                      ) : (tableDetails.items?.length === 0 || tableDetails.canClear) ? (
+                        /* FIX: If there are 0 items OR canClear is true, 
+                          allow the staff to finish the session. 
+                        */
+                        <TouchableOpacity 
+                          style={[styles.actionBtn, { backgroundColor: COLORS.secondary }]} 
+                          onPress={() => updateTableStatus('CLEANING')}
+                        >
+                          <Text style={styles.actionBtnText}>CLEANING</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={styles.warningBox}>
+                          <Text style={styles.warningTitle}>CANNOT CLOSE TABLE</Text>
+                          {tableDetails.unpaidCount > 0 && <Text style={styles.warningText}>• {tableDetails.unpaidCount} items are UNPAID</Text>}
+                          {tableDetails.unservedCount > 0 && <Text style={styles.warningText}>• {tableDetails.unservedCount} items are NOT SERVED</Text>}
+                        </View>
+                      )}
+                  </>
                 )}
-                </View>
+              </View>
             )}
 
             <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
-                <Text style={styles.closeText}>BACK TO MAP</Text>
+              <Text style={styles.closeText}>BACK TO MAP</Text>
             </TouchableOpacity>
-            </View>
+          </View>
         </View>
-        </Modal>
+      </Modal>
     </View>
   );
 }
 
+// ... styles remain the same
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingBottom: 100 },

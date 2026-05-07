@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert,
 import { COLORS, GLOBAL_STYLES } from '../../../src/styles/theme';
 import { LogOut, UserCircle, ChevronDown, ChevronUp, Settings, HelpCircle, Edit3, Save } from 'lucide-react-native';
 import { AUTH_URL } from '../../../src/config';
+import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
 export default function ProfileTab({ route, navigation }) {
   const { user } = route.params;
@@ -16,6 +17,17 @@ export default function ProfileTab({ route, navigation }) {
     { q: "Where can I see my receipts?", a: "Your successful orders appear in the 'Reorder' tab, where you can also quickly buy your favorites again." },
   ];
 
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.multiRemove(['userToken', 'userData']);
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
+    } catch (e) {
+      console.error("Logout Error", e);
+    }
+  };
   const handleUpdateProfile = async () => {
     try {
       const res = await fetch(`${AUTH_URL}/update-profile`, {
@@ -108,7 +120,7 @@ export default function ProfileTab({ route, navigation }) {
       {/* SIGN OUT */}
       <TouchableOpacity 
         style={[GLOBAL_STYLES.card, styles.logoutCard]}
-        onPress={() => navigation.replace('Welcome')}
+        onPress={handleLogout}
       >
         <LogOut color="red" size={24} strokeWidth={3} />
         <Text style={styles.logoutText}>SIGN OUT OF ACCOUNT</Text>
