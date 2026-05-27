@@ -1,97 +1,75 @@
-# ☕ CampusEats - Technical Guide
+# ☕ CampusEats: Smart Campus Restaurant Management
 
-CampusEats is a real-time restaurant management system built with **Node.js**, **PostgreSQL (Prisma)**, and **React Native (Expo)**. 
-
-## 🛠 Prerequisites
-Before starting, ensure you have the following installed:
-* **Node.js** (v18 or higher)
-* **PostgreSQL** (Running locally or on a Docker container)
-* **Expo Go App** (On your physical iOS/Android device)
+CampusEats is an end-to-end, real-time hospitality management ecosystem designed for high-density campus dining environments. By integrating **Neobrutalist UI/UX** with a complex transactional backend, the system solves the common friction points of shared table ordering, split-bill processing, and dynamic kitchen management.
 
 ---
 
-## 🚀 Quick Start for Developers
+## 🏗 System Architecture & Technology Stack
 
-### 1. Clone & Install
-```bash
-git clone <your-repo-url>
-cd CampusEats
-
-# Install Backend dependencies
-cd backend && npm install
-
-# Install Frontend dependencies
-cd ../frontend && npm install
-```
-
-### 2. Environment Setup
-Create a `.env` file inside the `/backend` folder. Add your local database connection string:
-```text
-DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/campuseats?schema=public"
-```
-
-### 3. Sync Database
-Run the following inside the `/backend` folder to create the tables in your local PostgreSQL:
-```bash
-npx prisma db push
-```
-
-### 4. Run the Project
-**Terminal 1 (Backend):**
-```bash
-cd backend
-node index.js
-```
-
-**Terminal 2 (Frontend):**
-```bash
-cd frontend
-npx expo start
-```
-*Scan the QR code with your **Expo Go** app. Ensure your phone and computer are on the **same Wi-Fi network**.*
+* **Frontend:** React Native (Expo) featuring persistent state management with `AsyncStorage` and real-time navigation via `react-navigation`.
+* **Backend:** Node.js (Express) with an event-driven architecture.
+* **Database:** PostgreSQL managed via **Prisma ORM**, ensuring type-safe data handling for inventory, orders, and sessions.
+* **Payments:** Stripe Payment Sheets for secure, tokenized multi-user split billing.
+* **Real-Time Sync:** WebSockets (via `socket.io`) for live kitchen/admin order updates and density tracking.
 
 ---
 
-## 👥 User Guides by Role
+## 👥 Portal Definitions
 
-### 1. Customer Portal 📱
-* **Entry:** Choose **Sign In**, **Register**, or **Continue as Guest**.
-* **Table Access:** * **Scan QR:** Generates a unique 4-digit **Table Code** (e.g., `XY72`).
-    * **Join Table:** Friends enter `XY72` to join the same shared cart.
-* **Splitting the Bill:** Use the **Selection Tool** (checkboxes) to claim specific items you want to pay for.
-* **Notifications:** Receive a push alert when Staff marks your order as **"Ready"**.
+### 1. Customer Portal (The Student Experience)
 
-### 2. Staff Portal 📋
-* **Secure Login:** Credentials + **OTP** verification required for entry.
-* **Live Table Map:** * **Red (Occupied):** Guests are currently at the table.
-    * **Yellow (Cleaning):** Guests have paid; table needs clearing.
-    * **Green (Empty):** Table is reset and visible to customers.
-* **Order Preparation:** Click **"Order Ready"** to notify customers for pickup.
+The customer app is the primary interface for dining. Key features include:
 
-### 3. Owner/Admin Portal 🔐
-* **Staff Control:** Add, update, or remove employee accounts.
-* **Inventory Management:** Update stock levels; items with 0 stock are hidden from customers.
-* **Promotions:** Create and manage active discount coupons.
+* **Table Sessioning:** Students scan a unique QR code matrix at their table to initialize a shared session. Friends can join the same table session using a 4-digit code.
+* **Interactive Customizations:** A dynamic modal system for item configuration. Users can add kitchen notes (e.g., "no lettuce") or select specific options (e.g., "Oat Milk" for coffee).
+* **Fractional Bill Splitting:** Unlike standard POS systems, CampusEats allows users to pay for a specific fraction of an order. The backend logic automatically splits the row in the database, marking the user's portion as `PAID` while spawning a new `PENDING` row for remaining units.
+* **Loyalty Integration:** Real-time point tracking ($1 = 10 pts) with dynamic progress bar visualizers.
+
+### 2. Staff Portal (The Operational Interface)
+
+Built to maximize efficiency in high-pressure campus kitchens:
+
+* **Live Table Map:** Provides staff with an overhead view of table states:
+* 🔴 **Occupied:** Active session.
+* 🟡 **Cleaning:** Paid but not yet reset.
+* 🟢 **Empty:** Ready for new guests.
+
+
+* **Order Preparation:** One-tap status updates. Tapping "Order Ready" triggers an event-driven notification loop to the student's app, reducing front-of-house bottlenecks.
+
+### 3. Admin Portal (The Business Intelligence Suite)
+
+The central command center for branch managers:
+
+* **Inventory & Menu Management:** Updates here are reflected globally and instantaneously in the customer app. The system supports inventory-linked recipe deductions—selling a burger automatically deducts the precise amount of buns and patties from the pantry ledger.
+* **Live Bulletin Dispatches:** A custom broadcast engine that pushes announcements to a horizontally-scrolling carousel on the customer homepage, facilitating flash sales or menu updates.
+* **Discount Logic:** A robust coupon engine supporting fixed or percentage discounts, restricted by product sector (Coffee, Burgers, etc.) and minimum spend thresholds.
 
 ---
 
-## 🛠 API Interaction Flow
+## 🗺 API Interaction Flow
 
-| Action | Endpoint | Method | Key Logic |
-| :--- | :--- | :--- | :--- |
-| **Login/Auth** | `/api/auth/login-signup` | `POST` | Role-based gatekeeping (OTP vs. Direct). |
-| **Start Session** | `/api/tables/open-session` | `POST` | Sets table to `OCCUPIED` & generates code. |
-| **Claim Item** | `/api/orders/claim-item` | `PATCH` | For individual item-based bill splitting. |
-| **Reset Table** | `/api/staff/set-empty` | `PATCH` | Switches status from `CLEANING` to `EMPTY`. |
+| Action Layer | Method | Core Logic |
+| --- | --- | --- |
+| **Session Initialization** | `POST` | Validates QR code, opens a new database session, and generates a short-lived join code. |
+| **Customized Ordering** | `POST` | Injects item ID, quantity, and stringified kitchen preference metadata into `OrderItem`. |
+| **Split-Payment Processing** | `POST` | Parses the `splitPayload` object to calculate exact costs; creates new row for unpaid balance. |
+| **Inventory Deduction** | `PATCH` | Transactional rollback-safe decrementing based on item-ingredient recipe maps. |
+| **Live Dispatch** | `GET` | Public-facing endpoint allowing customer app synchronization without requiring admin role auth. |
 
 ---
 
-### Important Developer Note
-Since we are using physical devices for testing, **do not use `localhost`** in your frontend API calls. Use your computer's **Local IP Address** (e.g., `192.168.1.XX`) so the Expo Go app can reach your local Node.js server.
+## ⚠️ Key Design Decisions
 
-⚠️ Troubleshooting
-Network Error: Ensure your phone and PC are on the same Wi-Fi.
+* **Transactional Integrity:** Every order payment is wrapped in a **Prisma Transaction (`$transaction`)**. This ensures that if a partial payment succeeds, the database splitting logic, inventory deduction, and loyalty point awarding either *all* happen or *none* happen, preventing inventory mismatch.
+* **Local Caching:** We use `AsyncStorage` as a high-performance read cache for menu, tables, and news data, significantly reducing API latency and ensuring the UI remains snappy even under poor campus Wi-Fi conditions.
+* **Neobrutalism UI:** The visual language uses high-contrast borders, solid shadows, and clear grid layouts to communicate status (e.g., Table Status, Loyalty Tier) immediately to the user.
 
-Stripe Error: Double-check that your app.json contains the merchantIdentifier and bundleIdentifier.
+---
 
-Prisma Error: If you change the schema, run npx prisma generate to update the client.
+### 🚀 Getting Started
+
+1. **Clone & Install:** `npm install` in both `backend` and `frontend`.
+2. **Env Config:** Configure `DATABASE_URL` (PostgreSQL) and `STRIPE_SECRET_KEY` in the backend `.env`.
+3. **Database Sync:** Run `npx prisma db push` to initialize the relational maps.
+4. **Launch:** Start the backend node server and use `npx expo start` for the frontend client.

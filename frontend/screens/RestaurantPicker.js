@@ -1,49 +1,72 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, TextInput } from 'react-native';
 import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
 import { RESTAURANT_URL } from '../src/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LogOut } from 'lucide-react-native';
+import { LogOut, Search, MapPin, Users } from 'lucide-react-native';
 
 export default function RestaurantPicker({ navigation, route }) {
   const { user } = route.params;
   const [restaurants, setRestaurants] = useState([]);
+  const [filteredRestaurants, setFilteredRestaurants] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchRestaurants = async () => {
+  const fetchRestaurants = useCallback(async () => {
     try {
-      const response = await fetch(RESTAURANT_URL);
+      const token = await AsyncStorage.getItem('userToken');
+      console.log("FETCHING WITH TOKEN:", token ? "Token Found" : "Token Missing");
+
+      const response = await fetch(RESTAURANT_URL, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.status === 403 || response.status === 401) {
+        console.error("AUTH ERROR: Invalid Token");
+        handleLogout();
+        return;
+      }
+
       const json = await response.json();
-      console.log("RESTAURANT DATA LOADED:", json.length, "items");
       setRestaurants(json);
+      setFilteredRestaurants(json);
     } catch (e) {
       console.error("Fetch Error:", e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  }, []);
+
+  useEffect(() => {
+    fetchRestaurants();
+  }, [fetchRestaurants]);
+
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    const filtered = restaurants.filter(r => 
+      r.name.toLowerCase().includes(text.toLowerCase())
+    );
+    setFilteredRestaurants(filtered);
   };
 
   const handleLogout = async () => {
     try {
       await AsyncStorage.multiRemove(['userToken', 'userData']);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Welcome' }],
-      });
+      navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
     } catch (e) {
       console.error("Logout Error", e);
     }
   };
 
-  useEffect(() => {
-    fetchRestaurants();
-  }, []);
-
   const getDensityColor = (percent) => {
     if (percent >= 90) return '#FF4444'; 
-    if (percent >= 50) return '#FFBB33'; 
+    if (percent >= 60) return '#FFBB33'; 
     return '#00C851'; 
   };
 
@@ -55,75 +78,103 @@ export default function RestaurantPicker({ navigation, route }) {
     });
   };
 
-  return (
-    <View style={[GLOBAL_STYLES.container, { flex: 1 }]}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>CHOOSE A LOCATION</Text>
-        <TouchableOpacity onPress={handleLogout} >
-           <LogOut color={COLORS.secondary} size={24} />
+  const renderHeader = () => (
+    <View style={styles.heroSection}>
+      <View style={styles.welcomeRow}>
+        <View>
+          <Text style={styles.greeting}>HELLO,</Text>
+          <Text style={styles.username}>{user.username.toUpperCase()}</Text>
+        </View>
+        <TouchableOpacity style={styles.logoutIcon} onPress={handleLogout}>
+          <LogOut color="#000" size={24} strokeWidth={3} />
         </TouchableOpacity>
       </View>
+      
+      <View style={styles.searchContainer}>
+        <Search color="#666" size={20} style={styles.searchIcon} />
+        <TextInput
+          placeholder="SEARCH LOCATIONS..."
+          placeholderTextColor="#999"
+          style={styles.searchInput}
+          value={searchQuery}
+          onChangeText={handleSearch}
+        />
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.mainContainer}>
+      {renderHeader()}
       
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>LOCATING FLAVORS...</Text>
         </View>
       ) : (
         <FlatList
-          data={restaurants}
+          data={filteredRestaurants}
           keyExtractor={item => item.id.toString()}
-          // This ensures the list takes up the available space
-          style={{ width: '100%' }}
-          contentContainerStyle={{ paddingBottom: 40, paddingTop: 10 }}
+          contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchRestaurants(); }} />
           }
           renderItem={({ item }) => {
-            // SAFE DATA CHECK
-            const tables = item.tables || [];
-            const totalTables = tables.length;
-            const occupiedTables = tables.filter(t => t.status !== 'EMPTY').length;
-            
-            // Logic: If no tables exist yet, use the seat capacity for the density bar
+            // NEW DENSITY LOGIC: Check both total_capacity and tables array
             let density = 0;
+            const totalTables = item.tables?.length || 0;
+            
             if (totalTables > 0) {
-              density = Math.round((occupiedTables / totalTables) * 100);
+              const occupied = item.tables.filter(t => t.status !== 'EMPTY').length;
+              density = Math.round((occupied / totalTables) * 100);
             } else if (item.total_capacity > 0) {
               density = Math.round((item.current_occupancy / item.total_capacity) * 100);
             }
 
             return (
               <TouchableOpacity 
-                style={[styles.restaurantCard, { borderLeftColor: getDensityColor(density) }]} 
+                style={styles.card} 
                 onPress={() => selectRestaurant(item)}
               >
-                <View style={styles.infoArea}>
-                  <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-                  
-                  <Text style={styles.capacityText}>
-                    {totalTables > 0 
-                      ? `${occupiedTables} / ${totalTables} Tables Occupied` 
-                      : `Capacity: ${item.total_capacity} Seats`}
-                  </Text>
-                  
-                  <Text style={styles.subtext}>
-                    Current Density: {item.current_occupancy} People Inside
-                  </Text>
-                </View>
+                <View style={[styles.cardTag, { backgroundColor: getDensityColor(density) }]} />
                 
-                <View style={styles.densityBadge}>
-                  <Text style={[styles.occupancy, { color: getDensityColor(density) }]}>
-                    {density}%
+                <View style={styles.cardMain}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.restaurantName}>{item.name}</Text>
+                    <View style={styles.densityPill}>
+                      <Users size={12} color="#666" />
+                      <Text style={styles.densityPillText}>{density}%</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.locationRow}>
+                    <MapPin size={14} color={COLORS.primary} />
+                    <Text style={styles.locationText}>ACTIVE BRANCH</Text>
+                  </View>
+
+                  <View style={styles.progressBarBg}>
+                    <View style={[styles.progressBarFill, { 
+                      width: `${Math.min(density, 100)}%`, 
+                      backgroundColor: getDensityColor(density) 
+                    }]} />
+                  </View>
+                  
+                  <Text style={styles.occupancySubtext}>
+                    {totalTables > 0 
+                      ? `${item.tables.filter(t => t.status !== 'EMPTY').length} / ${totalTables} TABLES BUSY`
+                      : `${item.current_occupancy} PEOPLE CURRENTLY DINING`}
                   </Text>
-                  <Text style={styles.densityLabel}>FULL</Text>
                 </View>
               </TouchableOpacity>
             );
           }}
-          // If the list is empty, show this
           ListEmptyComponent={
-            <View style={styles.center}>
-              <Text style={{ color: COLORS.secondary }}>No restaurants found.</Text>
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>NO BRANCHES FOUND</Text>
+              <TouchableOpacity onPress={fetchRestaurants} style={{marginTop: 20}}>
+                <Text style={{color: COLORS.primary, fontWeight: '900'}}>RETRY FETCH</Text>
+              </TouchableOpacity>
             </View>
           }
         />
@@ -132,109 +183,81 @@ export default function RestaurantPicker({ navigation, route }) {
   );
 }
 
+// ... styles remain exactly the same as provided in your previous message
 const styles = StyleSheet.create({
-  title: { 
-    fontSize: 24, 
-    fontWeight: '900', 
-    marginTop: 60, 
-    marginBottom: 20, 
-    textAlign: 'center', 
-    color: COLORS.secondary, 
-    letterSpacing: 1 
-  },
-  center: { 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    marginTop: 50 
-  },
-  restaurantCard: {
-    backgroundColor: '#FFF',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    marginHorizontal: 20,
-    marginVertical: 8,
-    borderWidth: 2,
-    borderColor: '#000',
-    borderLeftWidth: 12, // Thick brand stripe
-    // Neumorphic shadow for depth
-    shadowColor: "#000",
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 0,
-    elevation: 5,
-  },
-  infoArea: { 
-    flex: 1, 
-    paddingRight: 10 
-  },
-  name: { 
-    fontSize: 18, 
-    fontWeight: '900', 
-    color: '#000', 
-    textTransform: 'uppercase',
-    marginBottom: 4
-  },
-  capacityText: { 
-    fontSize: 14, 
-    color: COLORS.text, 
-    fontWeight: '700' 
-  },
-  subtext: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-    fontStyle: 'italic'
-  },
-  densityBadge: { 
-    alignItems: 'center', 
-    justifyContent: 'center',
-    minWidth: 65,
-    borderLeftWidth: 1,
-    borderLeftColor: '#EEE',
-    paddingLeft: 10
-  },
-  occupancy: { 
-    fontSize: 22, 
-    fontWeight: '900' 
-  },
-  densityLabel: { 
-    fontSize: 10, 
-    fontWeight: 'bold', 
-    color: '#888' 
-  },
-
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  mainContainer: { flex: 1, backgroundColor: '#FDFBEB' },
+  heroSection: {
+    backgroundColor: COLORS.primary,
+    paddingTop: 60,
     paddingHorizontal: 20,
-    marginTop: 60,
+    paddingBottom: 25,
+    borderBottomWidth: 5,
+    borderColor: '#000',
+  },
+  welcomeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 20,
   },
-  title: { 
-    fontSize: 22, 
-    fontWeight: '900', 
-    color: COLORS.secondary, 
-    letterSpacing: 1,
-    flex: 1
-  },
-  logoutBtn: {
-    backgroundColor: COLORS.primary, // Using your brand Red
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 2,
+  greeting: { fontSize: 14, fontWeight: '900', color: '#fff', opacity: 0.8 },
+  username: { fontSize: 28, fontWeight: '900', color: '#fff', letterSpacing: -1 },
+  logoutIcon: {
+    backgroundColor: '#fff',
+    padding: 10,
+    borderWidth: 3,
     borderColor: '#000',
-    shadowColor: '#000',
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 1,
-    elevation: 2,
   },
-  logoutText: {
-    color: '#FFF',
-    fontWeight: '900',
-    fontSize: 12,
-  }
+  searchContainer: {
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#000',
+    paddingHorizontal: 12,
+    height: 50,
+  },
+  searchIcon: { marginRight: 10 },
+  searchInput: { flex: 1, fontWeight: '900', fontSize: 14 },
+  listContent: { padding: 20, paddingBottom: 50 },
+  card: {
+    backgroundColor: '#fff',
+    borderWidth: 3,
+    borderColor: '#000',
+    flexDirection: 'row',
+    marginBottom: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 1,
+    elevation: 4,
+  },
+  cardTag: { width: 12, height: '100%', borderRightWidth: 3, borderColor: '#000' },
+  cardMain: { flex: 1, padding: 15 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  restaurantName: { fontSize: 18, fontWeight: '900', textTransform: 'uppercase' },
+  densityPill: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#eee', 
+    paddingHorizontal: 6, 
+    paddingVertical: 2, 
+    borderWidth: 1, 
+    borderColor: '#000' 
+  },
+  densityPillText: { fontSize: 10, fontWeight: '900', marginLeft: 4 },
+  locationRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
+  locationText: { fontSize: 11, fontWeight: '700', color: '#666', marginLeft: 4 },
+  progressBarBg: { 
+    height: 12, 
+    backgroundColor: '#eee', 
+    borderWidth: 2, 
+    borderColor: '#000', 
+    marginTop: 15 
+  },
+  progressBarFill: { height: '100%' },
+  occupancySubtext: { fontSize: 10, fontWeight: '800', color: '#999', marginTop: 8, textTransform: 'uppercase' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 10, fontWeight: '900', fontSize: 12, letterSpacing: 1 },
+  emptyContainer: { marginTop: 50, alignItems: 'center' },
+  emptyText: { fontWeight: '900', color: '#ccc' }
 });

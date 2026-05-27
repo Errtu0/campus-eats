@@ -1,38 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { ORDER_URL } from '../../../src/config';
-import { COLORS, GLOBAL_STYLES } from '../../../src/styles/theme';
-import { RotateCcw, Plus, ShoppingBag } from 'lucide-react-native';
+import { COLORS } from '../../../src/styles/theme';
+import { RotateCcw, ShoppingBag } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ReorderTab({ route, navigation }) {
-  // Use fallback naming just in case
   const restaurantId = route.params?.restaurantId;
-  const { user } = route.params;
 
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (restaurantId && user?.id) {
+    if (restaurantId) {
       fetchHistory();
     } else {
       setLoading(false);
-      console.log("Missing Params:", { restaurantId, userId: user?.id });
+      console.log("Missing restaurantId in parameters framework");
     }
   }, [restaurantId]);
 
   const fetchHistory = async () => {
     try {
-      const url = `${ORDER_URL}/user-history/${user.id}?restaurantId=${restaurantId}`;
+      const token = await AsyncStorage.getItem('userToken');
+      const url = `${ORDER_URL}/user-history?restaurantId=${restaurantId}`;
       console.log("🔗 Fetching History from:", url);
 
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
       const data = await res.json();
       
       if (res.ok) {
-        setHistory(data);
+        console.log("Successfully fetched history length:", data?.length);
+        setHistory(Array.isArray(data) ? data : []);
       } else {
-        console.error("Backend Error:", data.error);
+        console.error("Backend History Fetch Error:", data.error);
       }
     } catch (e) {
       console.error("Network Error:", e.message);
@@ -42,16 +49,15 @@ export default function ReorderTab({ route, navigation }) {
   };
 
   const handleReorder = (item) => {
-    // This navigates back to the OrderScreen with the item pre-selected
-    // or triggers a "Scan Required" alert if they aren't at a table yet.
     navigation.navigate('Scan', { autoSelect: item });
   };
 
   return (
     <View style={styles.container}>
+      {/* BRAND HEADERS */}
       <View style={styles.header}>
         <Text style={styles.title}>QUICK REORDER</Text>
-        <Text style={styles.subtitle}>Your favorites are just one tap away.</Text>
+        <Text style={styles.subtitle}>Your campus favorites are just one tap away.</Text>
       </View>
 
       {loading ? (
@@ -59,29 +65,39 @@ export default function ReorderTab({ route, navigation }) {
       ) : (
         <FlatList
           data={history}
-          keyExtractor={(item, index) => index.toString()}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          // FIX 2: Safe fallback key extractor so it never throws an iteration crash
+          keyExtractor={(item, index) => (item.id ? item.id.toString() : index.toString())}
+          contentContainerStyle={{ paddingBottom: 120 }}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
-            <View style={styles.reorderCard}>
-              <View style={styles.info}>
-                <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.lastOrdered}>Last ordered: {new Date(item.lastDate).toLocaleDateString()}</Text>
-                <Text style={styles.price}>${item.price.toFixed(2)}</Text>
+            /* FIX 1: Stable 3D container using relative heights instead of collapsing wrappers */
+            <View style={styles.cardWrapper}>
+              <View style={styles.reorderCard}>
+                <View style={styles.info}>
+                  <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles.lastOrdered}>
+                    LAST ORDERED: {item.lastDate ? new Date(item.lastDate).toLocaleDateString() : 'RECENT'}
+                  </Text>
+                  <Text style={styles.price}>${item.price ? item.price.toFixed(2) : '0.00'}</Text>
+                </View>
+                
+                <TouchableOpacity 
+                  style={styles.repeatBtn}
+                  onPress={() => handleReorder(item)}
+                >
+                  <RotateCcw color="#fff" size={14} strokeWidth={3} />
+                  <Text style={styles.btnText}>REORDER</Text>
+                </TouchableOpacity>
               </View>
-              
-              <TouchableOpacity 
-                style={styles.repeatBtn}
-                onPress={() => handleReorder(item)}
-              >
-                <RotateCcw color="#fff" size={20} strokeWidth={3} />
-                <Text style={styles.btnText}>REORDER</Text>
-              </TouchableOpacity>
             </View>
           )}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <ShoppingBag size={50} color="#ccc" />
-              <Text style={styles.emptyText}>No order history yet.</Text>
+              <View style={styles.emptyIconCircle}>
+                <ShoppingBag size={32} color="#000" strokeWidth={2} />
+              </View>
+              <Text style={styles.emptyText}>NO TRANSACTION HISTORY FOUND</Text>
+              <Text style={styles.emptySubtext}>Order history updates live after menu payments.</Text>
             </View>
           }
         />
@@ -91,37 +107,62 @@ export default function ReorderTab({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', padding: 20 },
-  header: { marginTop: 40, marginBottom: 20 },
-  title: { fontSize: 26, fontWeight: '900' },
-  subtitle: { fontSize: 13, fontWeight: '700', color: '#666' },
-  reorderCard: {
-    backgroundColor: '#fff',
+  container: { flex: 1, backgroundColor: '#FDFBEB', paddingHorizontal: 20 },
+  header: { marginTop: 60, marginBottom: 25 },
+  title: { fontSize: 28, fontWeight: '900', letterSpacing: -0.5, color: '#000' },
+  subtitle: { fontSize: 12, fontWeight: '700', color: '#666', marginTop: 2, textTransform: 'uppercase' },
+  
+  // FIXED STRUCTURE: Removed absolute positioning conflicts that collapsed heights
+  cardWrapper: {
+    backgroundColor: '#000',
     borderWidth: 3,
     borderColor: '#000',
-    padding: 20,
+    marginBottom: 15,
+  },
+  reorderCard: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#000',
+    padding: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 1,
-    elevation: 5
+    // Shifts the element neatly to create the Neobrutalist shadow depth effect cleanly
+    transform: [{ translateX: -4 }, { translateY: -4 }],
   },
-  info: { flex: 1 },
-  itemName: { fontSize: 18, fontWeight: '900', textTransform: 'uppercase' },
-  lastOrdered: { fontSize: 10, fontWeight: '700', color: '#999', marginVertical: 4 },
-  price: { fontSize: 16, fontWeight: '900', color: COLORS.secondary },
+  info: { flex: 1, paddingRight: 10 },
+  itemName: { fontSize: 16, fontWeight: '900', textTransform: 'uppercase', color: '#000' },
+  lastOrdered: { fontSize: 9, fontWeight: '800', color: '#888', marginTop: 4, letterSpacing: 0.2 },
+  price: { fontSize: 16, fontWeight: '900', color: COLORS.secondary, marginTop: 6 },
+  
   repeatBtn: { 
     backgroundColor: COLORS.primary, 
-    padding: 12, 
+    paddingHorizontal: 14, 
+    paddingVertical: 10,
     flexDirection: 'row', 
     alignItems: 'center', 
-    gap: 8,
-    borderWidth: 2,
-    borderColor: '#000'
+    gap: 6,
+    borderWidth: 3,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+    elevation: 2
   },
-  btnText: { color: '#fff', fontWeight: '900', fontSize: 12 },
-  empty: { alignItems: 'center', marginTop: 100 },
-  emptyText: { fontWeight: '800', color: '#ccc', marginTop: 10 }
+  btnText: { color: '#fff', fontWeight: '900', fontSize: 11, letterSpacing: 0.5 },
+  
+  // Empty State Layouts
+  empty: { alignItems: 'center', marginTop: 100, paddingHorizontal: 20 },
+  emptyIconCircle: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderWidth: 3,
+    borderColor: '#000',
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+  },
+  emptyText: { fontWeight: '900', color: '#000', fontSize: 13, letterSpacing: 0.5, textAlign: 'center' },
+  emptySubtext: { fontWeight: '700', color: '#777', fontSize: 11, textAlign: 'center', marginTop: 5, textTransform: 'uppercase' }
 });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Animated, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { AUTH_URL } from '../src/config';
 import { COLORS, GLOBAL_STYLES } from '../src/styles/theme';
 import CustomAlert from '../components/CustomAlert';
@@ -10,11 +10,9 @@ export default function RegisterScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
-  // Custom Alert state
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ title: '', message: '' });
 
@@ -31,26 +29,40 @@ export default function RegisterScreen({ navigation }) {
   };
 
   const handleRegister = async () => {
-  try {
-    const response = await fetch(`${AUTH_URL}/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, email, password }),
-    });
-
-    const data = await response.json();
-
-    if (data.message === "REGISTRATION_SUCCESS") {
-      // --- NEW: SAVE TOKEN ---
-      await AsyncStorage.setItem('userToken', data.token);
-      await AsyncStorage.setItem('userData', JSON.stringify(data.user));
-
-      navigation.replace('RestaurantPicker', { user: data.user });
+    if (!username.trim() || !email.trim() || !password.trim()) {
+      return showAlert("MISSING DATA", "Please populate all fields to proceed.");
     }
-  } catch (e) {
-    showAlert("Error", "Registration failed.");
-  }
-};
+    
+    // Client-side quick check matching our cryptographic backend rules
+    if (password.length < 8) {
+      return showAlert("WEAK PASSWORD", "Password must be at least 8 characters long.");
+    }
+
+    try {
+      const response = await fetch(`${AUTH_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username: username.trim(), 
+          email: email.trim().toLowerCase(), 
+          password 
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.message === "REGISTRATION_SUCCESS") {
+        await AsyncStorage.setItem('userToken', data.token);
+        await AsyncStorage.setItem('userData', JSON.stringify(data.user));
+        navigation.replace('RestaurantPicker', { user: data.user });
+      } else {
+        // Intercepts structural schema errors seamlessly
+        showAlert("REGISTRATION DENIED", data.error || "Username or email already registered.");
+      }
+    } catch (e) {
+      showAlert("OFFLINE", "Campus gateway server unreachable.");
+    }
+  };
 
   return (
     <View style={GLOBAL_STYLES.container}>

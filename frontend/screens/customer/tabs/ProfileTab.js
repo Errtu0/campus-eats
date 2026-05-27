@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, LayoutAnimation } from 'react-native';
-import { COLORS, GLOBAL_STYLES } from '../../../src/styles/theme';
+import { COLORS } from '../../../src/styles/theme';
 import { LogOut, UserCircle, ChevronDown, ChevronUp, Settings, HelpCircle, Edit3, Save } from 'lucide-react-native';
 import { AUTH_URL } from '../../../src/config';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
@@ -12,14 +12,14 @@ export default function ProfileTab({ route, navigation }) {
   const [expandedFaq, setExpandedFaq] = useState(null);
 
   const faqs = [
-    { q: "How do I start a session?", a: "Find an empty table, scan the QR code located on the table, and you'll be automatically joined to that session." },
-    { q: "Can I split the bill with friends?", a: "Yes! Every person at the table can scan the same QR code. You can then select individual items in the cart to pay for yourself." },
-    { q: "Where can I see my receipts?", a: "Your successful orders appear in the 'Reorder' tab, where you can also quickly buy your favorites again." },
+    { q: "HOW DO I START A SESSION?", a: "Find an empty table, scan the QR code located on the table, and you'll be automatically joined to that session." },
+    { q: "CAN I SPLIT THE BILL WITH FRIENDS?", a: "Yes! Every person at the table can scan the same QR code. You can then select individual items in the cart to pay for yourself." },
+    { q: "WHERE CAN I SEE MY RECEIPTS?", a: "Your successful orders appear in the 'Reorder' tab, where you can also quickly buy your favorites again." },
   ];
 
   const handleLogout = async () => {
     try {
-      await AsyncStorage.multiRemove(['userToken', 'userData']);
+      await AsyncStorage.multiRemove(['userToken', 'userData', 'active_session']);
       navigation.reset({
         index: 0,
         routes: [{ name: 'Welcome' }],
@@ -28,19 +28,33 @@ export default function ProfileTab({ route, navigation }) {
       console.error("Logout Error", e);
     }
   };
+
   const handleUpdateProfile = async () => {
+    if (!username.trim()) return Alert.alert("ERROR", "Username cannot be empty.");
     try {
+      // SECURITY FIX: Read authorization token from local storage
+      const token = await AsyncStorage.getItem('userToken');
+
       const res = await fetch(`${AUTH_URL}/update-profile`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, username }),
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // ATTACHED AUTH ROUTE LOCKS
+        },
+        // CLEANED PAYLOAD: Removed raw userId requirement
+        body: JSON.stringify({ username: username.trim() }),
       });
+
+      const data = await res.json();
+
       if (res.ok) {
         setIsEditing(false);
-        Alert.alert("Success", "Profile updated successfully!");
+        Alert.alert("SUCCESS", "Profile updated successfully!");
+      } else {
+        Alert.alert("DENIED", data.error || "Failed to alter account parameters.");
       }
     } catch (e) {
-      Alert.alert("Error", "Could not update profile.");
+      Alert.alert("ERROR", "Could not update profile.");
     }
   };
 
@@ -50,111 +64,183 @@ export default function ProfileTab({ route, navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 120 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
       {/* HEADER SECTION */}
       <View style={styles.profileHeader}>
-        <UserCircle size={100} color="#000" strokeWidth={1.5} />
+        <View style={styles.avatarBorder}>
+          <UserCircle size={90} color="#000" strokeWidth={1.5} />
+        </View>
+        
         {isEditing ? (
           <View style={styles.editRow}>
             <TextInput 
               style={styles.usernameInput} 
               value={username} 
               onChangeText={setUsername}
+              autoCapitalize="characters"
               autoFocus
+              maxLength={16}
             />
-            <TouchableOpacity onPress={handleUpdateProfile}>
-              <Save size={24} color={COLORS.secondary} />
+            <TouchableOpacity style={styles.saveBtn} onPress={handleUpdateProfile}>
+              <Save size={18} color="#fff" strokeWidth={2.5} />
             </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.editRow}>
-            <Text style={styles.userName}>{username}</Text>
-            <TouchableOpacity onPress={() => setIsEditing(true)}>
-              <Edit3 size={20} color={COLORS.primary} />
+            <Text style={styles.userName}>{username.toUpperCase()}</Text>
+            <TouchableOpacity style={styles.editIconBtn} onPress={() => setIsEditing(true)}>
+              <Edit3 size={16} color="#000" strokeWidth={2.5} />
             </TouchableOpacity>
           </View>
         )}
-        <Text style={styles.userRole}>Customer Account #{user.id}</Text>
+        <Text style={styles.userRole}>CAMPUS ACCOUNT ID #{user.id}</Text>
       </View>
 
       {/* SETTINGS SECTION */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Settings size={20} color="#000" />
+          <Settings size={18} color="#000" strokeWidth={2.5} />
           <Text style={styles.sectionTitle}>ACCOUNT SETTINGS</Text>
         </View>
-        <TouchableOpacity style={styles.settingItem}>
-          <Text style={styles.settingText}>Payment Methods</Text>
-          <ChevronDown size={18} color="#999" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem}>
-          <Text style={styles.settingText}>Notification Preferences</Text>
-          <ChevronDown size={18} color="#999" />
-        </TouchableOpacity>
+        
+        <View style={styles.neomorphicCardWrapper}>
+          <TouchableOpacity style={styles.settingItem}>
+            <Text style={styles.settingText}>PAYMENT METHODS</Text>
+            <ChevronDown size={18} color="#000" strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.neomorphicCardWrapper}>
+          <TouchableOpacity style={styles.settingItem}>
+            <Text style={styles.settingText}>NOTIFICATION PREFERENCES</Text>
+            <ChevronDown size={18} color="#000" strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* FAQ SECTION */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <HelpCircle size={20} color="#000" />
+          <HelpCircle size={18} color="#000" strokeWidth={2.5} />
           <Text style={styles.sectionTitle}>HOW TO USE CAMPUS EATS</Text>
         </View>
+        
         {faqs.map((faq, index) => (
-          <TouchableOpacity 
-            key={index} 
-            style={styles.faqItem} 
-            onPress={() => toggleFaq(index)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.faqHeader}>
-              <Text style={styles.faqQuestion}>{faq.q}</Text>
-              {expandedFaq === index ? <ChevronUp size={18} color="#000" /> : <ChevronDown size={18} color="#000" />}
-            </View>
-            {expandedFaq === index && (
-              <Text style={styles.faqAnswer}>{faq.a}</Text>
-            )}
-          </TouchableOpacity>
+          <View key={index} style={styles.neomorphicCardWrapper}>
+            <TouchableOpacity 
+              style={styles.faqItem} 
+              onPress={() => toggleFaq(index)}
+              activeOpacity={0.9}
+            >
+              <View style={styles.faqHeader}>
+                <Text style={styles.faqQuestion}>{faq.q}</Text>
+                {expandedFaq === index ? <ChevronUp size={18} color="#000" strokeWidth={2.5} /> : <ChevronDown size={18} color="#000" strokeWidth={2.5} />}
+              </View>
+              {expandedFaq === index && (
+                <Text style={styles.faqAnswer}>{faq.a}</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         ))}
       </View>
 
-      {/* SIGN OUT */}
-      <TouchableOpacity 
-        style={[GLOBAL_STYLES.card, styles.logoutCard]}
-        onPress={handleLogout}
-      >
-        <LogOut color="red" size={24} strokeWidth={3} />
-        <Text style={styles.logoutText}>SIGN OUT OF ACCOUNT</Text>
-      </TouchableOpacity>
+      {/* SIGN OUT NEOBRUTALIST ACTION CARD */}
+      <View style={styles.logoutCardWrapper}>
+        <TouchableOpacity 
+          style={styles.logoutCard}
+          onPress={handleLogout}
+          activeOpacity={0.9}
+        >
+          <LogOut color="#fff" size={20} strokeWidth={3} />
+          <Text style={styles.logoutText}>SIGN OUT OF ACCOUNT</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FDFBEB', padding: 20 },
-  profileHeader: { alignItems: 'center', marginTop: 60, marginBottom: 40 },
-  editRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 15 },
-  userName: { fontSize: 32, fontWeight: '900', letterSpacing: -1 },
-  usernameInput: { fontSize: 28, fontWeight: '900', borderBottomWidth: 3, borderColor: '#000', paddingHorizontal: 10, backgroundColor: '#fff' },
-  userRole: { fontSize: 14, fontWeight: '700', color: '#666', marginTop: 5 },
+  container: { flex: 1, backgroundColor: '#FDFBEB', paddingHorizontal: 20 },
+  profileHeader: { alignItems: 'center', marginTop: 60, marginBottom: 35 },
+  avatarBorder: {
+    padding: 4,
+    backgroundColor: '#fff',
+    borderWidth: 3,
+    borderColor: '#000',
+    borderRadius: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 1,
+  },
+  editRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 15, justifyContent: 'center', width: '100%' },
+  userName: { fontSize: 26, fontWeight: '900', letterSpacing: -0.5, color: '#000' },
+  editIconBtn: {
+    backgroundColor: '#fff',
+    padding: 6,
+    borderWidth: 2,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+  },
+  usernameInput: { 
+    fontSize: 20, 
+    fontWeight: '900', 
+    borderWidth: 3, 
+    borderColor: '#000', 
+    paddingHorizontal: 12, 
+    paddingVertical: 6,
+    backgroundColor: '#fff',
+    minWidth: 180,
+    textAlign: 'center'
+  },
+  saveBtn: {
+    backgroundColor: COLORS.secondary,
+    padding: 10,
+    borderWidth: 3,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
+  },
+  userRole: { fontSize: 11, fontWeight: '800', color: '#777', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   
-  section: { marginBottom: 30 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 15 },
-  sectionTitle: { fontSize: 14, fontWeight: '900', letterSpacing: 1 },
+  section: { marginBottom: 25 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 15 },
+  sectionTitle: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5, color: '#000' },
   
+  // High contrast 3D wrapper frames
+  neomorphicCardWrapper: {
+    backgroundColor: '#000',
+    borderWidth: 2,
+    borderColor: '#000',
+    marginBottom: 12,
+  },
   settingItem: { 
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 15, backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', marginBottom: 10
+    padding: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: '#000',
+    transform: [{ translateX: -3 }, { translateY: -3 }]
   },
-  settingText: { fontWeight: '700', fontSize: 16 },
+  settingText: { fontWeight: '900', fontSize: 13, color: '#000' },
 
-  faqItem: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', marginBottom: 10, padding: 15 },
+  faqItem: { 
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#000', padding: 16,
+    transform: [{ translateX: -3 }, { translateY: -3 }]
+  },
   faqHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  faqQuestion: { fontWeight: '900', fontSize: 14, flex: 1, marginRight: 10 },
-  faqAnswer: { marginTop: 10, fontWeight: '600', color: '#444', fontSize: 13, lineHeight: 18 },
+  faqQuestion: { fontWeight: '900', fontSize: 13, flex: 1, marginRight: 10, color: '#000' },
+  faqAnswer: { marginTop: 12, fontWeight: '700', color: '#555', fontSize: 12, lineHeight: 16, borderTopWidth: 2, borderTopColor: '#eee', paddingTop: 10 },
 
-  logoutCard: { 
-    flexDirection: 'row', alignItems: 'center', gap: 15, justifyContent: 'center', 
-    backgroundColor: '#FFF0F0', marginTop: 20, padding: 20 
+  logoutCardWrapper: {
+    backgroundColor: '#000',
+    borderWidth: 3,
+    borderColor: '#000',
+    marginTop: 15,
   },
-  logoutText: { fontWeight: '900', color: 'red', fontSize: 14, letterSpacing: 1 }
+  logoutCard: { 
+    flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'center', 
+    backgroundColor: COLORS.primary, padding: 16, borderWidth: 1, borderColor: '#000',
+    transform: [{ translateX: -4 }, { translateY: -4 }]
+  },
+  logoutText: { fontWeight: '900', color: '#fff', fontSize: 13, letterSpacing: 0.5 }
 });

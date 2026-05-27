@@ -1,24 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   View, 
   Text, 
   FlatList, 
   TouchableOpacity, 
   StyleSheet, 
-  ActivityIndicator, 
   Image, 
   Dimensions, 
-  ScrollView 
+  ScrollView,
+  Modal,
+  TextInput
 } from 'react-native';
 import { ORDER_URL } from '../../src/config';
 import { COLORS } from '../../src/styles/theme'; 
-import { Plus, MapPin, Leaf, Wheat, Flame, Candy, Citrus } from 'lucide-react-native';
+import { 
+  Plus, 
+  Minus,
+  MapPin, 
+  Leaf, 
+  Wheat, 
+  Flame, 
+  Cookie, 
+  Citrus,
+  MessageSquare
+} from 'lucide-react-native';
 import CustomAlert from '../../components/CustomAlert';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = (width - 60) / 2; 
 
-// LOCAL IMAGE MAPPING
 const itemImages = {
   'Signature Latte': require('../../assets/latte.png'),
   'Classic Burger': require('../../assets/burger.png'),
@@ -34,37 +45,62 @@ const itemImages = {
   'default': require('../../assets/latte.png'),
 };
 
-// BADGE COMPONENT - Placed outside to keep renderItem clean
 const ItemBadges = ({ item }) => (
   <View style={styles.badgeContainer}>
-    {item.is_vegan && <Leaf size={14} color="#2D5A27" strokeWidth={3} style={styles.badgeIcon} />}
-    {item.is_gluten_free && <Wheat size={14} color="#D4A017" strokeWidth={3} style={styles.badgeIcon} />}
-    {item.is_hot && <Flame size={14} color="#FF4500" strokeWidth={3} style={styles.badgeIcon} />}
-    {item.is_sweet && <Candy size={14} color="#FF69B4" strokeWidth={3} style={styles.badgeIcon} />}
-    {item.is_sour && <Citrus size={14} color="#CCFF00" strokeWidth={3} style={styles.badgeIcon} />} 
+    {!!item.is_vegan && (
+      <View style={[styles.badgeIconWrapper, { backgroundColor: '#E2F0D9' }]}>
+        <Leaf size={11} color="#2D5A27" strokeWidth={3} />
+      </View>
+    )}
+    {!!item.is_gluten_free && (
+      <View style={[styles.badgeIconWrapper, { backgroundColor: '#FFF2CC' }]}>
+        <Wheat size={11} color="#D4A017" strokeWidth={3} />
+      </View>
+    )}
+    {!!item.is_hot && (
+      <View style={[styles.badgeIconWrapper, { backgroundColor: '#FCE4D6' }]}>
+        <Flame size={11} color="#FF4500" strokeWidth={3} />
+      </View>
+    )}
+    {!!item.is_sweet && (
+      <View style={[styles.badgeIconWrapper, { backgroundColor: '#FCE4F2' }]}>
+        <Cookie size={11} color="#FF69B4" strokeWidth={3} />
+      </View>
+    )}
+    {!!item.is_sour && (
+      <View style={[styles.badgeIconWrapper, { backgroundColor: '#F5FFCC' }]}>
+        <Citrus size={11} color="#99CC00" strokeWidth={3} />
+      </View>
+    )} 
   </View>
 );
 
 export default function OrderScreen({ route, navigation }) {
-  const { session, user, restaurantName, restaurantId } = route.params;
-  const [menu, setMenu] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { session, user, restaurantName, menu = [] } = route.params;
   const [addingItem, setAddingItem] = useState(false);
-  
-  // NEW STATE: CATEGORY FILTERING
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const categories = ['ALL', 'COFFEE', 'BURGERS', 'SNACKS', 'DRINKS'];
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ title: '', message: '' });
 
-  console.log("DEBUG - Received Name:", restaurantName);
+  // --- INTERACTIVE CUSTOMIZATION STATES ---
+  const [customizerModal, setCustomizerModal] = useState(false);
+  const [activeTargetItem, setActiveTargetItem] = useState(null);
+  const [selectedMilk, setSelectedMilk] = useState('Whole Milk');
+  const [specialNotes, setSpecialNotes] = useState('');
+  
+  // FIX 1: ADDED QUANTITY MULTIPLIER COUNTER STATE
+  const [quantity, setQuantity] = useState(1);
 
-  // FILTER LOGIC - Run every render
-  const filteredMenu = (Array.isArray(menu) && menu.length > 0)
+  const filteredMenu = Array.isArray(menu)
     ? (selectedCategory === 'ALL' 
         ? menu 
-        : menu.filter(item => item.category?.toUpperCase() === selectedCategory.toUpperCase()))
+        : menu.filter(item => {
+            const itemCategory = item.category ? item.category.trim().toUpperCase() : '';
+            const selectedTarget = selectedCategory.trim().toUpperCase();
+            return itemCategory === selectedTarget;
+          }))
     : [];
 
   const showAlert = (title, message) => {
@@ -72,64 +108,59 @@ export default function OrderScreen({ route, navigation }) {
     setAlertVisible(true);
   };
 
-  useEffect(() => {
-    const fetchMenu = async () => {
-      // Use the restaurantId from params if session.restaurant_id is missing
-      const targetId = session?.restaurant_id || restaurantId;
-      
-      console.log("FETCHING MENU FOR ID:", targetId);
+  const openCustomizerTray = (item) => {
+    setActiveTargetItem(item);
+    setSelectedMilk('Whole Milk');
+    setSpecialNotes('');
+    setQuantity(1); // Reset counter safely to 1 on initial load
+    setCustomizerModal(true);
+  };
 
-      if (!targetId) {
-        console.log("ERROR: No Restaurant ID found in session or params");
-        setLoading(false); // Stop the spinner so we can see the error
-        return;
-      }
+  // COUNTER MODIFIER FUNCTIONS
+  const incrementQuantity = () => setQuantity(prev => prev + 1);
+  const decrementQuantity = () => setQuantity(prev => (prev > 1 ? prev - 1 : 1));
 
-      try {
-        const response = await fetch(`${ORDER_URL}/menu-items?restaurantId=${targetId}`);
-        const data = await response.json();
-        
-        if (Array.isArray(data)) {
-          setMenu(data);
-        } else {
-          setMenu([]);
-          console.log("DATA ERROR: Backend did not return an array", data);
-        }
-      } catch (e) {
-        console.log("FETCH ERROR:", e);
-        showAlert("Error", "Could not load menu items.");
-        setMenu([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMenu();
-  }, [session?.restaurant_id, restaurantId]); // Watch both sources
-
-  const addToCart = async (itemId, itemName) => {
-    if (addingItem) return;
+  const handleCommitToCart = async () => {
+    if (!activeTargetItem) return;
+    setCustomizerModal(false);
     setAddingItem(true);
+
+    const isCoffee = activeTargetItem.category?.toUpperCase() === 'COFFEE' || activeTargetItem.name.toLowerCase().includes('latte');
+    let dynamicCustomizationString = "";
+
+    if (isCoffee) {
+      dynamicCustomizationString = `[${selectedMilk.toUpperCase()}] ${specialNotes.trim()}`;
+    } else {
+      dynamicCustomizationString = specialNotes.trim();
+    }
+
     try {
+      const token = await AsyncStorage.getItem('userToken');
       const response = await fetch(`${ORDER_URL}/add-item`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           sessionId: session.id,
-          menuItemId: itemId,
-          userId: user.id,
-          quantity: 1
+          menuItemId: activeTargetItem.id,
+          quantity: parseInt(quantity), // FIX 2: Passes the true dynamic counter metric through payloads
+          customization: dynamicCustomizationString || null 
         }),
       });
+      
+      const result = await response.json();
       if (response.ok) {
-        showAlert("Added!", `${itemName} added to table cart.`);
+        showAlert("ADDED!", `${quantity}x ${activeTargetItem.name.toUpperCase()} RUNNING CONFIGS DEPLOYED TO CART.`);
       } else {
-        showAlert("Error", "Check item ID.");
+        showAlert("ERROR", result.error || "Check item alignment properties.");
       }
     } catch (e) {
-      showAlert("Offline", "Server is unreachable.");
+      showAlert("OFFLINE", "Gateway connection timed out.");
     } finally {
       setAddingItem(false);
+      setActiveTargetItem(null);
     }
   };
 
@@ -144,18 +175,17 @@ export default function OrderScreen({ route, navigation }) {
           <Image source={imageSource} style={styles.itemImage} />
           <TouchableOpacity 
             style={styles.gridAddBtn} 
-            onPress={() => addToCart(item.id, item.name)}
+            onPress={() => openCustomizerTray(item)}
             disabled={addingItem}
           >
-            <Plus color="#618C82" size={24} strokeWidth={4} />
+            <Plus color="#000" size={20} strokeWidth={4} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.itemInfo}>
-          <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.itemName} numberOfLines={1}>{item.name.toUpperCase()}</Text>
           <View style={styles.priceRow}>
             <Text style={styles.itemPrice}>${item.price.toFixed(2)}</Text>
-            {/* INJECTED BADGES HERE */}
             <ItemBadges item={item} />
           </View>
         </View>
@@ -165,221 +195,181 @@ export default function OrderScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
-      <CustomAlert 
-        visible={alertVisible} 
-        title={alertConfig.title} 
-        message={alertConfig.message} 
-        onClose={() => setAlertVisible(false)} 
-      />
+      <CustomAlert visible={alertVisible} title={alertConfig.title} message={alertConfig.message} onClose={() => setAlertVisible(false)} />
 
-      {/* TOP LOCATION BAR */}
+      {/* LOCATION MODULE */}
       <View style={styles.locationBar}>
         <View style={styles.locationInner}>
           <View style={styles.campusBadge}>
             <Text style={styles.badgeText}>CE</Text>
           </View>
           <Text style={styles.locationText}>
-            {restaurantName} - Table {session.table_id}
+            {restaurantName?.toUpperCase()} • TABLE {session.table_id}
           </Text>
-          <MapPin size={18} color="#000" />
+          <MapPin size={18} color="#000" strokeWidth={2.5} />
         </View>
       </View>
 
-      {/* CATEGORY FILTERS */}
-      <View style={{ maxHeight: 50, marginBottom: 10 }}>
+      {/* FILTER BUTTONS */}
+      <View style={{ maxHeight: 50, marginBottom: 15 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 20 }}>
           {categories.map((cat) => (
-            <TouchableOpacity 
-              key={cat} 
-              style={[styles.filterBtn, selectedCategory === cat && styles.activeFilter]}
-              onPress={() => setSelectedCategory(cat)}
-            >
-              <Text style={[styles.filterText, selectedCategory === cat && styles.activeFilterText]}>
-                {cat}
-              </Text>
+            <TouchableOpacity key={cat} style={[styles.filterBtn, selectedCategory === cat && styles.activeFilter]} onPress={() => setSelectedCategory(cat)}>
+              <Text style={[styles.filterText, selectedCategory === cat && styles.activeFilterText]}>{cat}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      {loading ? (
-        <ActivityIndicator size="large" color="#618C82" style={{ marginTop: 50 }} />
-      ) : (
-        <FlatList
-          data={filteredMenu}
-          renderItem={renderItem}
-          keyExtractor={item => item.id.toString()}
-          numColumns={2}
-          contentContainerStyle={styles.gridList}
-          showsVerticalScrollIndicator={false}
-          columnWrapperStyle={styles.columnWrapper}
-        />
-      )}
+      <FlatList
+        data={filteredMenu}
+        renderItem={renderItem}
+        keyExtractor={item => item.id.toString()}
+        numColumns={2}
+        contentContainerStyle={styles.gridList}
+        showsVerticalScrollIndicator={false}
+        columnWrapperStyle={styles.columnWrapper}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>NO ITEMS IN THIS SECTOR</Text>
+          </View>
+        }
+      />
 
-      <TouchableOpacity 
-        style={styles.cartBtn}
-        onPress={() => navigation.navigate('TableCartScreen', { session, user })}
-      >
-        <Text style={styles.cartBtnText}>VIEW TABLE CART & PAY</Text>
-      </TouchableOpacity>
+      {/* NEOBRUTALIST CUSTOMIZER DRAWER MODAL */}
+      <Modal visible={customizerModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>CUSTOMIZE YOUR ORDER</Text>
+              <Text style={styles.itemNameSubtitle}>{activeTargetItem?.name?.toUpperCase()}</Text>
+              
+              {/* COFFEE CONDITION EXTRA OPTION BLOCKS */}
+              {(activeTargetItem?.category?.toUpperCase() === 'COFFEE' || activeTargetItem?.name?.toLowerCase().includes('latte')) && (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={styles.label}>SELECT MILK</Text>
+                  <View style={styles.milkGrid}>
+                    {['Whole Milk', 'Lactose Free', 'Oat Milk', 'Almond Milk'].map((milkOption) => (
+                      <TouchableOpacity 
+                        key={milkOption}
+                        style={[styles.milkChip, selectedMilk === milkOption && styles.activeMilkChip]}
+                        onPress={() => setSelectedMilk(milkOption)}
+                      >
+                        <Text style={[styles.milkChipText, selectedMilk === milkOption && styles.activeMilkChipText]}>
+                          {milkOption.toUpperCase()}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* UNIVERSAL KITCHEN STAFF LOG NOTATION AREA */}
+              <View style={{ marginTop: 15 }}>
+                <Text style={styles.label}>NOTES FOR KITCHEN</Text>
+                <View style={styles.inputContainer}>
+                  <MessageSquare size={16} color="#777" style={styles.inputIcon} />
+                  <TextInput 
+                    placeholder="e.g. No lettuce / Extra hot / Medium sweet preference"
+                    placeholderTextColor="#777"
+                    style={styles.textInput}
+                    value={specialNotes}
+                    onChangeText={setSpecialNotes}
+                    maxLength={140}
+                  />
+                </View>
+              </View>
+
+              {/* FIX 3: INJECT QUANTITY STEPPER ROW SELECTORS BUTTONS */}
+              <View style={{ marginTop: 20 }}>
+                <Text style={styles.label}>QUANTITY</Text>
+                <View style={styles.stepperWrapperRow}>
+                  <TouchableOpacity style={styles.stepperBtn} onPress={decrementQuantity}>
+                    <Minus size={18} color="#000" strokeWidth={3} />
+                  </TouchableOpacity>
+                  
+                  <View style={styles.stepperValueBox}>
+                    <Text style={styles.stepperValueText}>{quantity}</Text>
+                  </View>
+                  
+                  <TouchableOpacity style={styles.stepperBtn} onPress={incrementQuantity}>
+                    <Plus size={18} color="#000" strokeWidth={3} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity style={[styles.actionConfirmBtn, { backgroundColor: COLORS.secondary }]} onPress={handleCommitToCart}>
+                <Text style={styles.actionConfirmBtnText}>ADD ({quantity}) TO TABLE CART</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => setCustomizerModal(false)} style={{ marginTop: 15 }}>
+                <Text style={styles.cancelText}>CANCEL</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* FIXED POSITION CONTROL FOOTER */}
+      <View style={styles.cartBtnWrapper}>
+        <TouchableOpacity style={styles.cartBtn} onPress={() => navigation.navigate('TableCartScreen', { session, user })}>
+          <Text style={styles.cartBtnText}>VIEW TABLE CART & PAY</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#FDFBEB', 
-    paddingTop: 60
-  },
-  locationBar: { 
-    paddingHorizontal: 20, 
-    marginBottom: 15 
-  },
-  locationInner: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#fff', 
-    padding: 10, 
-    borderWidth: 2, 
-    borderColor: '#000', 
-    borderRadius: 5 
-  },
-  campusBadge: { 
-    backgroundColor: '#618C82', 
-    width: 30, 
-    height: 30, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    borderRadius: 4, 
-    marginRight: 10 
-  },
-  badgeText: { 
-    color: '#fff', 
-    fontWeight: '900', 
-    fontSize: 12 
-  },
-  locationText: { 
-    flex: 1, 
-    fontWeight: '700', 
-    fontSize: 14 
-  },
-  filterBtn: { 
-    paddingHorizontal: 15, 
-    marginRight: 10, 
-    borderWidth: 2, 
-    borderColor: '#000', 
-    backgroundColor: '#fff',
-    height: 35,
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 1,
-  },
-  activeFilter: { 
-    backgroundColor: '#000' 
-  },
-  filterText: { 
-    fontWeight: '800', 
-    fontSize: 13,
-    color: '#000'
-  },
-  activeFilterText: { 
-    color: '#fff' 
-  },
-  gridList: { 
-    paddingHorizontal: 20, 
-    paddingBottom: 150 
-  },
-  columnWrapper: { 
-    justifyContent: 'space-between' 
-  },
-  menuItemCard: { 
-    width: COLUMN_WIDTH, 
-    marginBottom: 20, 
-    backgroundColor: '#fff', 
-    borderWidth: 2, 
-    borderColor: '#000',
-    shadowColor: '#000',
-    shadowOffset: { width: 5, height: 5 },
-    shadowOpacity: 1,
-    elevation: 6 
-  },
-  imageContainer: { 
-    width: '100%', 
-    height: COLUMN_WIDTH * 1.1, 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    position: 'relative',
-    borderBottomWidth: 2,
-    borderColor: '#000',
-    overflow: 'hidden' 
-  },
-  itemImage: { 
-    width: '110%', 
-    height: '110%', 
-    resizeMode: 'contain',
-    transform: [{ scale: 1.05 }] 
-  },
-  gridAddBtn: { 
-    position: 'absolute', 
-    bottom: 8, 
-    right: 8, 
-    backgroundColor: '#fff', 
-    width: 35, 
-    height: 35, 
-    borderWidth: 2, 
-    borderColor: '#000',
-    justifyContent: 'center', 
-    alignItems: 'center'
-  },
-  itemInfo: { 
-    padding: 10 
-  },
-  itemName: { 
-    fontSize: 15, 
-    fontWeight: '900', 
-    color: '#000' 
-  },
-  itemPrice: { 
-    fontSize: 14, 
-    fontWeight: '700', 
-    color: '#666', 
-    marginTop: 2 
-  },
-  cartBtn: { 
-    position: 'absolute', 
-    bottom: 30, 
-    alignSelf: 'center',
-    width: '90%', 
-    backgroundColor: '#fff', 
-    borderWidth: 3, 
-    borderColor: '#000', 
-    padding: 18, 
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 6, height: 6 },
-    shadowOpacity: 1,
-    elevation: 8
-  },
-  cartBtnText: { 
-    fontWeight: '900', 
-    fontSize: 16, 
-    textTransform: 'uppercase' 
-  },
-  priceRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    marginTop: 5 
-  },
-  badgeContainer: { 
-    flexDirection: 'row', 
-    gap: 4 
-  },
-  badgeIcon: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 2,
-  },
+  container: { flex: 1, backgroundColor: '#FDFBEB', paddingTop: 60 },
+  locationBar: { paddingHorizontal: 20, marginBottom: 15 },
+  locationInner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderWidth: 3, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, elevation: 3 },
+  campusBadge: { backgroundColor: '#000', width: 28, height: 28, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  badgeText: { color: '#fff', fontWeight: '900', fontSize: 11 },
+  locationText: { flex: 1, fontWeight: '900', fontSize: 12, color: '#000', letterSpacing: 0.5 },
+  filterBtn: { paddingHorizontal: 16, marginRight: 10, borderWidth: 3, borderColor: '#000', backgroundColor: '#fff', height: 40, justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1 },
+  activeFilter: { backgroundColor: '#000' },
+  filterText: { fontWeight: '900', fontSize: 11, color: '#000', letterSpacing: 0.5 },
+  activeFilterText: { color: '#fff' },
+  gridList: { paddingHorizontal: 20, paddingBottom: 160 },
+  columnWrapper: { justifyContent: 'space-between' },
+  menuItemCard: { width: COLUMN_WIDTH, marginBottom: 20, backgroundColor: '#fff', borderWidth: 3, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 1, elevation: 4 },
+  imageContainer: { width: '100%', height: COLUMN_WIDTH * 1.05, justifyContent: 'center', alignItems: 'center', position: 'relative', borderBottomWidth: 3, borderColor: '#000', overflow: 'hidden' },
+  itemImage: { width: '95%', height: '95%', resizeMode: 'contain' },
+  gridAddBtn: { position: 'absolute', bottom: 8, right: 8, backgroundColor: '#fff', width: 36, height: 36, borderWidth: 3, borderColor: '#000', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1 },
+  itemInfo: { padding: 12, backgroundColor: '#fff' },
+  itemName: { fontSize: 13, fontWeight: '900', color: '#000', letterSpacing: -0.2 },
+  priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, position: 'relative' },
+  itemPrice: { fontSize: 14, fontWeight: '900', color: '#000' },
+  cartBtnWrapper: { position: 'absolute', bottom: 30, left: 20, right: 20, backgroundColor: '#000', borderWidth: 3, borderColor: '#000' },
+  cartBtn: { backgroundColor: '#fff', padding: 18, alignItems: 'center', borderWidth: 1, borderColor: '#000', transform: [{ translateX: -5 }, { translateY: -5 }] },
+  cartBtnText: { fontWeight: '900', fontSize: 14, textTransform: 'uppercase', color: '#000', letterSpacing: 0.5 },
+  badgeContainer: { flexDirection: 'row', gap: 4, alignItems: 'center' },
+  badgeIconWrapper: { padding: 3, borderWidth: 1.5, borderColor: '#000', borderRadius: 0, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 1, height: 1 }, shadowOpacity: 1, elevation: 1 },
+  emptyContainer: { paddingVertical: 80, alignItems: 'center' },
+  emptyText: { fontWeight: '900', color: '#888', fontSize: 12 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalContent: { width: '100%', backgroundColor: '#FDFBEB', borderWidth: 4, borderColor: '#000', padding: 20, shadowColor: '#000', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1 },
+  modalTitle: { fontSize: 20, fontWeight: '900', color: '#000', textAlign: 'center' },
+  itemNameSubtitle: { fontSize: 13, fontWeight: '800', color: COLORS.primary, textAlign: 'center', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  label: { fontSize: 10, fontWeight: '900', color: '#000', marginBottom: 8, marginTop: 12, letterSpacing: 0.5 },
+  milkGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  milkChip: { paddingHorizontal: 12, paddingVertical: 8, borderWidth: 2.5, borderColor: '#000', backgroundColor: '#fff' },
+  activeMilkChip: { backgroundColor: '#000' },
+  milkChipText: { fontSize: 9, fontWeight: '900', color: '#000' },
+  activeMilkChipText: { color: '#fff' },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 3, borderColor: '#000', backgroundColor: '#fff', paddingHorizontal: 10 },
+  inputIcon: { marginRight: 8 },
+  textInput: { flex: 1, height: 48, fontWeight: '800', fontSize: 13, color: '#000' },
+  
+  // FIX 4: NEOBRUTALIST STEPPER STYLING BLOCK SPECIFICATIONS
+  stepperWrapperRow: { flexDirection: 'row', alignItems: 'center', gap: 0, height: 46, maxWidth: 160 },
+  stepperBtn: { width: 46, height: 46, borderWidth: 3, borderColor: '#000', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+  stepperValueBox: { flex: 1, height: 46, borderTopWidth: 3, borderBottomWidth: 3, borderColor: '#000', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 15 },
+  stepperValueText: { fontSize: 16, fontWeight: '900', color: '#000' },
+
+  actionConfirmBtn: { padding: 16, alignItems: 'center', borderWidth: 3, borderColor: '#000', marginTop: 25, shadowColor: '#000', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1 },
+  actionConfirmBtnText: { color: '#fff', fontWeight: '900', fontSize: 13, letterSpacing: 0.5 },
+  cancelText: { textAlign: 'center', fontSize: 11, fontWeight: '900', textDecorationLine: 'underline', color: '#666' }
 });

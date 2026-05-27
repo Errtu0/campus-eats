@@ -54,7 +54,7 @@ export default function AdminDashboard({ navigation, route }) {
     }
   };
 
-  const fetchAllData = useCallback(async () => {
+const fetchAllData = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
       const response = await fetch(`${ADMIN_URL}/dashboard-data?restaurantId=${restaurant.id}`, {
@@ -66,14 +66,21 @@ export default function AdminDashboard({ navigation, route }) {
 
       const data = await response.json();
       
-
       if (response.ok) {
-        setDashboardData(data);
-        activeSessions: data.activeSessions || [] // Ensure this is always an array
+        setDashboardData({
+          menu: data.menu || [],
+          staff: data.staff || [],
+          inventory: data.inventory || [],
+          activeSessions: data.activeSessions || [],
+          coupons: data.coupons || [],
+          history: data.history || [],
+          totalRevenue: data.totalRevenue || 0,
+          densityLogs: data.densityLogs || [],
+          // FIX: Assign incoming backend array payload safely to central state dictionary
+          newsFeed: data.newsFeed || [] 
+        });
       } else {
-        // Use CustomAlert instead of Alert.alert
         showAlert("Security Error", data.error || "Session expired");
-        // Optionally redirect on close if you want to be strict
       }
     } catch (e) {
       console.error("Dashboard Fetch Error:", e);
@@ -127,10 +134,18 @@ export default function AdminDashboard({ navigation, route }) {
         {view === 'STAFF' && <StaffTab restaurantId={restaurant.id} data={dashboardData.staff} refresh={fetchAllData} />}
         {view === 'INVENTORY' && <InventoryTab restaurantId={restaurant.id} data={dashboardData.inventory} refresh={fetchAllData} />}
         {view === 'SESSIONS' && <LiveSessionsTab restaurantId={restaurant.id} 
-            sessions={dashboardData.activeSessions} // <--- WAS LIKELY dashboardData.sessions
+            sessions={dashboardData.activeSessions} 
             tables={dashboardData.tables} 
             refresh={fetchAllData} />}
-        {view === 'PROMO' && <PromotionTab restaurantId={restaurant.id} data={dashboardData.coupons} refresh={fetchAllData} />}
+          
+          {view === 'PROMO' && (
+            <PromotionTab 
+              restaurantId={restaurant.id} 
+              data={dashboardData.coupons} 
+              newsFeed={dashboardData.newsFeed} // FIX: Updated to match state dictionary key name
+              refresh={fetchAllData} 
+            />
+          )}
         {view === 'HISTORY' && <LogsTab data={dashboardData.history} revenue={dashboardData.totalRevenue} densityLogs={dashboardData.densityLogs} />}
       </View>
 

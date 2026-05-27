@@ -33,12 +33,16 @@ export default function App() {
       <NavigationContainer>
         <Stack.Navigator 
           initialRouteName="Splash"
-          screenOptions={{ headerShown: false }}
+          screenOptions={{ 
+            headerShown: false,
+            gestureEnabled: false, // GLOBAL LOCKDOWN: Disables swipe-back completely by default
+            animationEnabled: true,
+          }}
         >
           <Stack.Screen name="Splash" component={SplashScreen} />
           <Stack.Screen name="Welcome" component={WelcomeScreen} />
-          <Stack.Screen name="SignIn" component={SignInScreen} />
-          <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="SignIn" component={SignInScreen} options={{ gestureEnabled: true }} />
+          <Stack.Screen name="Register" component={RegisterScreen} options={{ gestureEnabled: true }} />
           <Stack.Screen name="RestaurantPicker" component={RestaurantPicker} />
           
           {/* Admin Routes */}
@@ -47,8 +51,20 @@ export default function App() {
 
           {/* Customer Routes */}
           <Stack.Screen name="CustomerTabs" component={CustomerTabs} />
-          <Stack.Screen name="OrderScreen" component={OrderScreen} />
-          <Stack.Screen name="TableCartScreen" component={TableCartScreen} />
+          
+          {/* UNLOCKED: Gestures open exclusively for OrderScreen */}
+          <Stack.Screen 
+            name="OrderScreen" 
+            component={OrderScreen} 
+            options={{ gestureEnabled: true }} 
+          />
+          
+          {/* UNLOCKED: Changed screenOptions to options so the navigator accepts the override */}
+          <Stack.Screen 
+            name="TableCartScreen" 
+            component={TableCartScreen} 
+            options={{ gestureEnabled: true }} 
+          />
 
           {/* Staff Routes */}
           <Stack.Screen name="StaffDashboard" component={StaffDashboard} />

@@ -21,6 +21,19 @@ enum TableStatus {
   CLEANING
 }
 
+enum CouponType {
+  PERCENT
+  FIXED_AMOUNT
+}
+
+enum CouponCategory {
+  ALL
+  COFFEE
+  BURGERS
+  SNACKS
+  DRINKS
+}
+
 model User {
   id                Int            @id @default(autoincrement())
   username          String         @unique
@@ -52,6 +65,7 @@ model Restaurant {
   inventory         InventoryItem[] 
   density_logs      DensityLog[]
   coupons           Coupon[]
+  news_feeds        PromotionNews[]
 }
 
 model Table {
@@ -92,31 +106,33 @@ model Order {
 }
 
 model MenuItem {
-  id              Int               @id @default(autoincrement())
+  id              Int                  @id @default(autoincrement())
   restaurant_id   Int
-  restaurant      Restaurant        @relation(fields: [restaurant_id], references: [id])
+  restaurant      Restaurant           @relation(fields: [restaurant_id], references: [id])
   name            String
   price           Float
+  category        String               @default("COFFEE") // Dynamic string allows text entry injections
+  image_name      String?              @default("default") // Matches your frontend asset dictionary keys
   order_items     OrderItem[]
-  ingredients     MenuItemIngredient[] // ADDED THIS: Back-relation for the recipe
-  category        String   @default("UNCATEGORIZED") // Add this temporary default
-  is_vegan        Boolean  @default(false)
-  is_gluten_free  Boolean  @default(false)
-  is_hot          Boolean  @default(false)
-  is_sweet        Boolean  @default(false)
-  is_sour         Boolean  @default(false) // Added your Sour field!
+  ingredients     MenuItemIngredient[]
+  is_vegan        Boolean              @default(false)
+  is_gluten_free  Boolean              @default(false)
+  is_hot          Boolean              @default(false)
+  is_sweet        Boolean              @default(false)
+  is_sour         Boolean              @default(false)
 }
 
 model OrderItem {
-  id               Int      @id @default(autoincrement())
-  order_id         Int
-  order            Order    @relation(fields: [order_id], references: [id])
-  item_id          Int
-  item             MenuItem @relation(fields: [item_id], references: [id])
-  quantity         Int      @default(1)
-  paid_by_user_id  Int?     
-  paid_by          User?    @relation("PaidBy", fields: [paid_by_user_id], references: [id])
-  status           String?  @default("PENDING") 
+  id              Int      @id @default(autoincrement())
+  order_id        Int
+  order           Order    @relation(fields: [order_id], references: [id])
+  item_id         Int
+  item            MenuItem @relation(fields: [item_id], references: [id])
+  quantity        Int      @default(1)
+  paid_by_user_id Int?     
+  paid_by         User?    @relation("PaidBy", fields: [paid_by_user_id], references: [id])
+  status          String?  @default("PENDING") 
+  customization   String?  
 }
 
 model Payment {
@@ -128,14 +144,17 @@ model Payment {
 }
 
 model Coupon {
-  id              Int      @id @default(autoincrement())
-  restaurant_id   Int?     // Add this if it's missing!
-  restaurant      Restaurant? @relation(fields: [restaurant_id], references: [id])
+  id              Int            @id @default(autoincrement())
+  restaurant_id   Int?           
+  restaurant      Restaurant?    @relation(fields: [restaurant_id], references: [id])
   admin_id        Int
-  admin           User     @relation(fields: [admin_id], references: [id])
-  code            String   @unique
-  discount_value  Float
-  is_active       Boolean  @default(true)
+  admin           User           @relation(fields: [admin_id], references: [id])
+  code            String         @unique
+  coupon_type     CouponType     @default(PERCENT)
+  discount_value  Float          // Serves as raw percentage OR literal amount off
+  min_cart_limit  Float          @default(0.0) // Minimum transaction value required
+  applicable_to   CouponCategory @default(ALL) // Sector lock rules
+  is_active       Boolean        @default(true)
   orders          Order[]
 }
 
@@ -169,4 +188,15 @@ model MenuItemIngredient {
 
   @@index([menuItemId])
   @@index([inventoryId])
+}
+
+
+model PromotionNews {
+  id            Int        @id @default(autoincrement())
+  restaurant_id Int
+  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+  title         String
+  description   String
+  image_tag     String     @default("default") // Maps to local visual accent illustrations
+  created_at    DateTime   @default(now())
 }

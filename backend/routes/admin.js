@@ -3,156 +3,166 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const QRCode = require('qrcode');
+const bcrypt = require('bcryptjs'); // INJECT CRYPTO HOOK
 const verifyToken = require('../middleware/authMiddleware');
 const { isAdmin } = require('../middleware/roleMiddleware');
 
-// Secure all routes in this file
 router.use(verifyToken);
 router.use(isAdmin);
 
 // --- OVERVIEW & HISTORY (DASHBOARD DATA) ---
-  router.get('/dashboard-data', async (req, res) => {
-    try {
-      const restaurantId = parseInt(req.query.restaurantId);
-      if (!restaurantId) return res.status(400).json({ error: "Missing restaurantId" });
+router.get('/dashboard-data', async (req, res) => {
+  try {
+    const restaurantId = parseInt(req.query.restaurantId);
+    if (!restaurantId) return res.status(400).json({ error: "Missing restaurantId" });
 
-      // 0. Ownership Check
-      const checkOwnership = await prisma.restaurant.findFirst({
-        where: { id: restaurantId, admin_id: req.user.id }
-      });
+    const checkOwnership = await prisma.restaurant.findFirst({
+      where: { id: restaurantId, admin_id: req.user.id }
+    });
 
-      if (!checkOwnership) {
-        return res.status(403).json({ error: "Access Denied: You do not own this restaurant." });
+    if (!checkOwnership) {
+      return res.status(403).json({ error: "Access Denied: You do not own this restaurant." });
+    }
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const dailyOrders = await prisma.order.findMany({
+      where: { 
+        restaurant_id: restaurantId,
+        created_at: { gte: startOfDay } 
+      },
+      include: {
+        items: { include: { item: true } },
+        coupon: true
       }
+    });
 
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
+    let calculatedRevenue = 0;
+    dailyOrders.forEach(order => {
+      let orderSubtotal = (order.items || []).reduce((sum, i) => {
+        return sum + (Number(i.item?.price || 0) * (i.quantity || 1));
+      }, 0);
 
-      // 1. Fetch Today's Orders for Revenue
-      const dailyOrders = await prisma.order.findMany({
-        where: { 
-          restaurant_id: restaurantId,
-          created_at: { gte: startOfDay } 
-        },
-        include: {
+      if (order.coupon) {
+        orderSubtotal = orderSubtotal * (1 - (order.coupon.discount_value / 100));
+      }
+      calculatedRevenue += orderSubtotal;
+    });
+
+    const [menu, staff, inventory, coupons, tables, densityLogs, history, activeSessions, newsFeed] = await Promise.all([
+      prisma.menuItem.findMany({ 
+        where: { restaurant_id: restaurantId },
+        orderBy: { name: 'asc' } 
+      }),
+      prisma.user.findMany({ 
+        where: { role: 'STAFF', restaurant_id: restaurantId },
+        select: { id: true, username: true, email: true, phone_number: true, role: true } // Don't expose cleartext/hashes on dashboard listing queries
+      }),
+      prisma.inventoryItem.findMany({ 
+        where: { restaurant_id: restaurantId },
+        orderBy: { name: 'asc' } 
+      }),
+      prisma.coupon.findMany({ where: { restaurant_id: restaurantId } }),
+      prisma.table.findMany({ where: { restaurant_id: restaurantId } }),
+      prisma.densityLog.findMany({
+        where: { restaurant_id: restaurantId },
+        orderBy: { recorded_at: 'desc' },
+        take: 20
+      }),
+      prisma.order.findMany({
+        where: { restaurant_id: restaurantId },
+        take: 30,
+        orderBy: { created_at: 'desc' },
+        include: { 
+          customer: { select: { username: true } },
           items: { include: { item: true } },
           coupon: true
         }
-      });
-
-      // 2. Manual Revenue Calculation (Sums up item prices since total_amount column is 0)
-      let calculatedRevenue = 0;
-      dailyOrders.forEach(order => {
-        let orderSubtotal = (order.items || []).reduce((sum, i) => {
-          return sum + (Number(i.item?.price || 0) * (i.quantity || 1));
-        }, 0);
-
-        if (order.coupon) {
-          orderSubtotal = orderSubtotal * (1 - (order.coupon.discount_value / 100));
-        }
-        calculatedRevenue += orderSubtotal;
-      });
-
-      // 3. Parallel fetching of all other sections to prevent 304/Timeout issues
-      const [menu, staff, inventory, coupons, tables, densityLogs, history, activeSessions] = await Promise.all([
-        prisma.menuItem.findMany({ 
-          where: { restaurant_id: restaurantId },
-          orderBy: { name: 'asc' } 
-        }),
-        prisma.user.findMany({ 
-          where: { role: 'STAFF', restaurant_id: restaurantId } 
-        }),
-        prisma.inventoryItem.findMany({ 
-          where: { restaurant_id: restaurantId },
-          orderBy: { name: 'asc' } 
-        }),
-        prisma.coupon.findMany({
-          where: { restaurant_id: restaurantId }
-        }),
-        prisma.table.findMany({
-          where: { restaurant_id: restaurantId }
-        }),
-        prisma.densityLog.findMany({
-          where: { restaurant_id: restaurantId },
-          orderBy: { recorded_at: 'desc' },
-          take: 20
-        }),
-        prisma.order.findMany({
-          where: { restaurant_id: restaurantId },
-          take: 30,
-          orderBy: { created_at: 'desc' },
-          include: { 
-            customer: { select: { username: true } },
-            items: { include: { item: true } },
-            coupon: true
-          }
-        }),
-        prisma.session.findMany({
-          where: { 
-            is_active: true,
-            table: {
-              restaurant_id: Number(restaurantId) // Force Number type
-            }
-          },
-          include: { 
-            table: true, 
-            orders: {
-              include: {
-                items: { 
-                  include: { 
-                    item: true, 
-                    paid_by: { select: { username: true } } 
-                  } 
-                }
+      }),
+      prisma.session.findMany({
+        where: { 
+          is_active: true,
+          table: { restaurant_id: Number(restaurantId) }
+        },
+        include: { 
+          table: true, 
+          orders: {
+            include: {
+              items: { 
+                include: { 
+                  item: true, 
+                  paid_by: { select: { username: true } } 
+                } 
               }
             }
           }
-        })
-      ]);
+        }
+      }),
+      prisma.promotionNews.findMany({ where: { restaurant_id: restaurantId }, orderBy: { created_at: 'desc' } })
+    ]);
 
-      // Return the full payload
-      res.json({ 
-        menu, 
-        staff, 
-        inventory, 
-        coupons, 
-        tables, 
-        history, 
-        activeSessions, 
-        totalRevenue: Number(calculatedRevenue.toFixed(2)), 
-        densityLogs 
-      });
+    res.json({ 
+      menu, 
+      staff, 
+      inventory, 
+      coupons, 
+      tables, 
+      history, 
+      activeSessions, 
+      totalRevenue: Number(calculatedRevenue.toFixed(2)), 
+      densityLogs, 
+      newsFeed: newsFeed || []
+    });
 
-    } catch (error) {
-      console.error("Dashboard Data Error:", error);
-      res.status(500).json({ error: "Failed to fetch dashboard data" });
-    }
-  });
+  } catch (error) {
+    console.error("Dashboard Data Error:", error);
+    res.status(500).json({ error: "Failed to fetch dashboard data" });
+  }
+});
 
-// --- PROMOTIONS (COUPONS) ---
+// --- PROMOTIONS ENGINE ROUTE MODIFICATIONS (SECURED DUPLICATE CHECK) ---
 router.post('/coupons', async (req, res) => {
-  const { code, discount_value, restaurant_id } = req.body;
+  const { code, discount_value, restaurant_id, coupon_type, min_cart_limit, applicable_to } = req.body;
+  
+  if (!code || !discount_value || !restaurant_id) {
+    return res.status(400).json({ error: "Missing required rule attributes." });
+  }
+
   try {
+    const formattedCode = code.toUpperCase().trim();
+    
+    // Explicit server-side uniqueness structural verification checkpoint
+    const existingCoupon = await prisma.coupon.findUnique({
+      where: { code: formattedCode }
+    });
+
+    if (existingCoupon) {
+      return res.status(400).json({ error: "PROMO_CODE_ALREADY_EXISTS" });
+    }
+
     const restaurant = await prisma.restaurant.findUnique({
       where: { id: parseInt(restaurant_id) },
       select: { admin_id: true }
     });
 
-    if (!restaurant) return res.status(404).json({ error: "Restaurant not found" });
+    if (!restaurant) return res.status(404).json({ error: "Restaurant branch context missing." });
 
     const newCoupon = await prisma.coupon.create({
       data: {
-        code: code.toUpperCase(),
+        code: formattedCode,
         discount_value: parseFloat(discount_value),
         restaurant_id: parseInt(restaurant_id),
         admin_id: restaurant.admin_id,
+        coupon_type: coupon_type || 'PERCENT',
+        min_cart_limit: min_cart_limit ? parseFloat(min_cart_limit) : 0.0,
+        applicable_to: applicable_to || 'ALL',
         is_active: true
       }
     });
     res.json(newCoupon);
   } catch (error) {
-    console.error("Coupon Create Error:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Failed to compile custom code rules." });
   }
 });
 
@@ -169,36 +179,54 @@ router.patch('/coupons/:id/status', async (req, res) => {
   }
 });
 
-// ADDED: Fix for the 404 error when deleting coupons
 router.delete('/coupons/:id', async (req, res) => {
   try {
-    await prisma.coupon.delete({
-      where: { id: parseInt(req.params.id) }
-    });
+    await prisma.coupon.delete({ where: { id: parseInt(req.params.id) } });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: "Could not delete coupon. It may not exist." });
   }
 });
 
-// --- STAFF MANAGEMENT ---
+// --- STAFF MANAGEMENT (UPDATED FOR SECURE PROVISIONING) ---
 router.post('/staff', async (req, res) => {
   const { username, password, phone_number, email, restaurant_id } = req.body;
+  
+  // FIX: Structural Email Regex & Strength Constraints
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  
+  if (!username || !password || !email || !restaurant_id) {
+    return res.status(400).json({ error: "Missing required profile payload metrics." });
+  }
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: "Invalid staff email format schema structural boundary." });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: "Password allocation constraint failed: Min length is 8." });
+  }
+
   try {
+    // FIX: Secure Hashing Strategy before Transaction Create execution
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
     const newStaff = await prisma.user.create({
       data: { 
         username, 
-        password_hash: password, 
+        password_hash: hashedPassword, 
         phone_number, 
         email,
         role: 'STAFF',
         restaurant_id: parseInt(restaurant_id)
       }
     });
-    res.json(newStaff);
+
+    // Don't leak raw hashes on client response returns
+    const { password_hash, ...staffSafe } = newStaff;
+    res.json(staffSafe);
   } catch (error) { 
     console.error(error);
-    res.status(400).json({ error: "Username or Phone already exists." }); 
+    res.status(400).json({ error: "Username, Email, or Phone already exists in systemic directories." }); 
   }
 });
 
@@ -212,47 +240,82 @@ router.delete('/staff/:id', async (req, res) => {
 });
 
 router.patch('/staff/:id', async (req, res) => {
-  const { username, phone_number, email, password_hash } = req.body;
+  const { username, phone_number, email, password } = req.body; // Expect plain password text if changing it
+  
+  const updateData = { username, phone_number, email };
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (email && !emailRegex.test(email)) {
+    return res.status(400).json({ error: "Invalid email format schema parameters." });
+  }
+
   try {
+    // FIX: Conditional execution if updating password parameter row
+    if (password) {
+      if (password.length < 8) {
+        return res.status(400).json({ error: "Password update must contain at least 8 characters." });
+      }
+      const salt = await bcrypt.genSalt(10);
+      updateData.password_hash = await bcrypt.hash(password, salt);
+    }
+
     const updated = await prisma.user.update({
       where: { id: parseInt(req.params.id) },
-      data: { 
-        username, 
-        phone_number, 
-        email,
-        password_hash 
-      }
+      data: updateData
     });
-    res.json(updated);
+    
+    const { password_hash, ...staffSafe } = updated;
+    res.json(staffSafe);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// --- MENU MANAGEMENT ---
+// --- MENU MANAGEMENT UPGRADED TIER (WITH BOOLEAN TOGGLES) ---
 router.post('/menu', async (req, res) => {
-  const { name, price, restaurant_id } = req.body;
+  const { name, price, restaurant_id, category, image_name, is_vegan, is_gluten_free, is_hot, is_sweet, is_sour } = req.body;
+  if (!name || !price || !restaurant_id) {
+    return res.status(400).json({ error: "Mandatory structural data attributes missing." });
+  }
+
   try {
     const newItem = await prisma.menuItem.create({
       data: { 
         name, 
         price: parseFloat(price), 
-        restaurant_id: parseInt(restaurant_id)
+        restaurant_id: parseInt(restaurant_id),
+        category: category ? category.toUpperCase().trim() : "COFFEE",
+        image_name: image_name || "default",
+        // FIX: Cast directly to Boolean fields explicitly
+        is_vegan: Boolean(is_vegan),
+        is_gluten_free: Boolean(is_gluten_free),
+        is_hot: Boolean(is_hot),
+        is_sweet: Boolean(is_sweet),
+        is_sour: Boolean(is_sour)
       }
     });
     res.json(newItem);
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) { 
+    res.status(500).json({ error: error.message }); 
+  }
 });
 
 router.patch('/menu/:id', async (req, res) => {
-  const { name, price, stock_quantity } = req.body;
+  const { name, price, category, image_name, is_vegan, is_gluten_free, is_hot, is_sweet, is_sour } = req.body;
   try {
     const updated = await prisma.menuItem.update({
       where: { id: parseInt(req.params.id) },
       data: { 
-        name: name,
+        name,
         price: price ? parseFloat(price) : undefined, 
-        stock_quantity: stock_quantity ? parseInt(stock_quantity) : undefined 
+        category: category ? category.toUpperCase().trim() : undefined,
+        image_name: image_name || undefined,
+        // FIX: Update booleans safely if passed inside request body packets
+        is_vegan: is_vegan !== undefined ? Boolean(is_vegan) : undefined,
+        is_gluten_free: is_gluten_free !== undefined ? Boolean(is_gluten_free) : undefined,
+        is_hot: is_hot !== undefined ? Boolean(is_hot) : undefined,
+        is_sweet: is_sweet !== undefined ? Boolean(is_sweet) : undefined,
+        is_sour: is_sour !== undefined ? Boolean(is_sour) : undefined
       }
     });
     res.json(updated);
@@ -401,11 +464,11 @@ router.post('/register-branch', async (req, res) => {
   }
 });
 
-// --- UTILS ---
+// UPGRADED VERIFICATION ENDPOINT FOR MULTI-RULE CHECKS
 router.post('/coupons/verify', async (req, res) => {
-  const { code, restaurantId } = req.body;
+  const { code, restaurantId, currentSubtotal } = req.body; // Expect subtotal values passed from cart components
   try {
-    if (!code || !restaurantId) return res.status(400).json({ error: "Missing data" });
+    if (!code || !restaurantId) return res.status(400).json({ error: "Missing identity tracking data attributes." });
 
     const coupon = await prisma.coupon.findFirst({
       where: {
@@ -415,11 +478,69 @@ router.post('/coupons/verify', async (req, res) => {
       }
     });
 
-    if (!coupon) return res.status(404).json({ error: "Invalid promo code" });
+    if (!coupon) return res.status(404).json({ error: "Promo code unrecognized or expired." });
+
+    // CRITICAL: Condition limits check validation routine
+    if (currentSubtotal && parseFloat(currentSubtotal) < coupon.min_cart_limit) {
+      return res.status(400).json({ 
+        error: `Cart total insufficient. Spend at least $${coupon.min_cart_limit.toFixed(2)} to unlock.` 
+      });
+    }
+
     res.json(coupon);
   } catch (error) {
-    res.status(500).json({ error: "Verification failed" });
+    res.status(500).json({ error: "Systemic processing verification failed." });
   }
 });
 
-module.exports = router;
+
+// --- NEWSLETTER BROADCAST CONTROL PATHWAYS ---
+
+// 1. Dispatch New Story Announcement
+router.post('/news-feed', async (req, res) => {
+  const { title, description, restaurant_id, image_tag } = req.body;
+  if (!title || !description || !restaurant_id) {
+    return res.status(400).json({ error: "Missing required newsletter payload properties." });
+  }
+
+  try {
+    const newsItem = await prisma.promotionNews.create({
+      data: {
+        title: title.trim(),
+        description: description.trim(),
+        restaurant_id: parseInt(restaurant_id),
+        image_tag: image_tag || "default"
+      }
+    });
+    res.json(newsItem);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to broadcast newsletter record." });
+  }
+});
+
+// 2. Fetch Active Newsletter Backlog (Public Customer Pipeline Route)
+router.get('/news-feed/:restaurantId', async (req, res) => {
+  try {
+    const feeds = await prisma.promotionNews.findMany({
+      where: { restaurant_id: parseInt(req.params.restaurantId) },
+      orderBy: { created_at: 'desc' }
+    });
+    res.json(feeds);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to pull newsletter updates." });
+  }
+});
+
+// --- DELETE ANNOUNCEMENT BULLETIN ---
+router.delete('/news-feed/:id', async (req, res) => {
+  try {
+    await prisma.promotionNews.delete({
+      where: { id: parseInt(req.params.id) }
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Could not drop bulletin item instance." });
+  }
+});
+
+module.exports = router;  

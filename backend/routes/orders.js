@@ -2,83 +2,101 @@ const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const verifyToken = require('../middleware/authMiddleware');
 
-// 1. Add Item to Table Order
+// PROTECT ALL ORDER ROUTES
+router.use(verifyToken);
+
+// 1. Add Item to Table Order (Securely Syncs Multipliers & Custom Text parameters)
 router.post('/add-item', async (req, res) => {
-  const { sessionId, menuItemId, quantity, userId } = req.body;
+  // FIX 1: Destructure customization payloads directly from incoming body channels
+  const { sessionId, menuItemId, quantity, customization } = req.body;
+  const userId = req.user.id; 
 
   try {
-    // Check if an 'OPEN' order exists for this session
+    // Check if an 'OPEN' pending order framework exists for this session
     let order = await prisma.order.findFirst({
-      where: { session_id: sessionId, status: 'PENDING' }
+      where: { session_id: parseInt(sessionId), status: 'PENDING' }
     });
 
     if (!order) {
-      // --- FIX: Lookup the restaurant ID from the Session ---
       const activeSession = await prisma.session.findUnique({
-        where: { id: sessionId },
+        where: { id: parseInt(sessionId) },
         include: { table: true }
       });
 
-      if (!activeSession) {
-        return res.status(404).json({ error: "Session not found." });
+      if (!activeSession || !activeSession.is_active) {
+        return res.status(404).json({ error: "No active session found." });
       }
 
-      // Create the order using the REAL restaurant_id from the table
       order = await prisma.order.create({
         data: {
-          session_id: sessionId,
+          session_id: parseInt(sessionId),
           customer_id: userId,
-          restaurant_id: activeSession.table.restaurant_id, // <--- DYNAMIC FIX
+          restaurant_id: activeSession.table.restaurant_id,
           status: 'PENDING'
         }
       });
     }
 
-    // Add the specific item to the order
     const orderItem = await prisma.orderItem.create({
       data: {
         order_id: order.id,
-        item_id: menuItemId,
-        quantity: quantity || 1,
-        status: 'PENDING' // Ensure items start as pending until paid
+        // Aligned securely to point to schema references definitions
+        item_id: parseInt(menuItemId),
+        quantity: quantity ? parseInt(quantity) : 1,
+        customization: customization || null, // FIX 2: Maps text settings strings safely to table columns
+        status: 'PENDING'
       }
     });
 
-    res.json({ message: "Item added to cart", orderItem });
+    res.json({ message: "Item added to cart successfully", orderItem });
   } catch (error) {
-    console.error("Add Item Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// 2. The Selection Tool (Claiming an item to pay)
+// 2. Claim an item (Prevents claiming already claimed items)
 router.patch('/claim-item', async (req, res) => {
-  const { orderItemId, userId } = req.body;
+  const { orderItemId } = req.body;
+  const userId = req.user.id;
 
   try {
+    const existingItem = await prisma.orderItem.findUnique({
+      where: { id: parseInt(orderItemId) }
+    });
+
+    if (!existingItem) return res.status(404).json({ error: "Item record missing." });
+
+    if (existingItem.paid_by_user_id && existingItem.paid_by_user_id !== userId) {
+      return res.status(400).json({ error: "This item is already being paid for by someone else!" });
+    }
+
     const updatedItem = await prisma.orderItem.update({
-      where: { id: orderItemId },
+      where: { id: parseInt(orderItemId) },
       data: { paid_by_user_id: userId }
     });
 
-    res.json({ message: "Item claimed for payment", updatedItem });
+    res.json({ message: "Item claimed", updatedItem });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// 3. Get Active Session Cart (What everyone sees on their phone)
+// 3. Get Session Cart (Synchronized to read structural item relations dynamically)
 router.get('/session-cart/:sessionId', async (req, res) => {
   try {
+    const sId = parseInt(req.params.sessionId);
+    
     const items = await prisma.orderItem.findMany({
       where: { 
-        order: { session_id: parseInt(req.params.sessionId) } 
+        order: { session_id: sId } 
       },
       include: { 
         item: true,
-        paid_by: { select: { username: true } } // See who paid what
-      }
+        paid_by: { select: { username: true } } 
+      },
+      orderBy: { id: 'asc' } // Orders elements sequentially to preserve list coherence on user screen views
     });
     res.json(items);
   } catch (error) {
@@ -86,69 +104,53 @@ router.get('/session-cart/:sessionId', async (req, res) => {
   }
 });
 
+// 4. Scoped Menu Items
 router.get('/menu-items', async (req, res) => {
-  // Extract from query string
-  const rId = parseInt(req.query.restaurantId);
-
-  // If rId is not a valid number, stop here!
-  if (!rId || isNaN(rId)) {
-    return res.status(400).json({ error: "Valid restaurantId is required" });
-  }
+  const rId = req.query.restaurantId;
+  if (!rId) return res.status(400).json({ error: "restaurantId required" });
 
   try {
     const items = await prisma.menuItem.findMany({
       where: {
-        restaurant_id: rId
+        restaurant_id: parseInt(rId)
       }
     });
     res.json(items);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error(error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-router.get('/user-history/:userId', async (req, res) => {
-  const { userId } = req.params;
-  const restaurantId = parseInt(req.query.restaurantId);
+// 5. Secure History (Filter by Token User ID)
+router.get('/user-history', async (req, res) => {
+  const userId = req.user.id; 
+  const rId = parseInt(req.query.restaurantId);
 
   try {
     const history = await prisma.orderItem.findMany({
       where: {
-        order: {
-          customer_id: parseInt(userId),
-          restaurant_id: restaurantId,
-        },
-        status: { in: ['PAID', 'READY', 'SERVED'] } 
+        paid_by_user_id: userId,
+        status: { in: ['PAID', 'READY', 'SERVED'] },
+        order: rId ? { restaurant_id: rId } : undefined
       },
-      include: { 
-        item: true,
-        order: true // Include parent order to access its date if needed
-      },
-      orderBy: {
-        id: 'desc' // Use id since created_at doesn't exist on OrderItem
-      }
+      include: { item: true, order: true },
+      orderBy: { id: 'desc' }
     });
 
-    const uniqueItems = [];
-    const seen = new Set();
-
-    for (const record of history) {
-      // Safety check: make sure record.item exists
-      if (record.item && !seen.has(record.item_id)) {
-        seen.add(record.item_id);
-        uniqueItems.push({
+    const uniqueItems = Array.from(new Set(history.map(h => h.item_id)))
+      .map(id => {
+        const record = history.find(h => h.item_id === id);
+        return {
           id: record.item.id,
           name: record.item.name,
           price: record.item.price,
-          // Use the date from the parent Order
-          lastDate: record.order.created_at 
-        });
-      }
-    }
+          lastDate: record.order.created_at
+        };
+      });
 
     res.json(uniqueItems);
   } catch (error) {
-    console.error("History Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -1,13 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { COLORS, GLOBAL_STYLES } from '../../../src/styles/theme';
+import { COLORS } from '../../../src/styles/theme';
 import { TABLE_URL } from '../../../src/config';
 import CustomAlert from '../../../components/CustomAlert';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function CustomerScan({ route, navigation }) {
-  // restaurantId comes from the previous screen (Home/Restaurant List)
   const { user, restaurantId } = route.params; 
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -24,14 +23,14 @@ export default function CustomerScan({ route, navigation }) {
     setAlertVisible(true);
   };
 
-  if (!permission) return <View style={styles.container}><ActivityIndicator size="large" /></View>;
+  if (!permission) return <View style={styles.container}><ActivityIndicator size="large" color="#000" /></View>;
 
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.text}>Camera access is required to scan table QRs.</Text>
+        <Text style={styles.text}>CAMERA ACCESS IS REQUIRED TO SCAN TABLE QR CODES.</Text>
         <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.btnText}>Grant Permission</Text>
+          <Text style={styles.btnText}>GRANT PERMISSION</Text>
         </TouchableOpacity>
       </View>
     );
@@ -42,13 +41,12 @@ export default function CustomerScan({ route, navigation }) {
     isProcessing.current = true;
     setScanned(true);
 
-    // Some QR generators add extra text. We clean it to just get the ID number.
     const tableId = parseInt(data.replace(/[^0-9]/g, '')); 
     
     if (isNaN(tableId)) {
       setScanned(false);
       isProcessing.current = false;
-      showAlert("Invalid QR", "This QR code format is not recognized.");
+      showAlert("INVALID QR", "This QR code format is not recognized.");
       return;
     }
     
@@ -58,13 +56,18 @@ export default function CustomerScan({ route, navigation }) {
   const connectToTable = async (id) => {
     setLoading(true);
     try {
+      // SECURITY ADDITION: Retrieve your token from client storage
+      const token = await AsyncStorage.getItem('userToken');
+
       const response = await fetch(`${TABLE_URL}/open-session`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // ADDED HEADER SECURITY
+        },
         body: JSON.stringify({ 
-            tableId: parseInt(id), 
-            userId: user.id, 
-            restaurantId: parseInt(restaurantId) // STRICT VALIDATION
+          tableId: parseInt(id), 
+          restaurantId: parseInt(restaurantId) 
         }),
       });
       
@@ -90,29 +93,33 @@ export default function CustomerScan({ route, navigation }) {
       } else {
         setScanned(false);
         isProcessing.current = false;
-        // This is where "This table belongs to another branch" comes from
-        showAlert("Scan Failed", result.error || "Could not open session.");
+        showAlert("SCAN FAILED", result.error || "Could not open session.");
       }
     } catch (e) {
       setScanned(false);
       isProcessing.current = false;
-      showAlert("Error", "Server connection failed.");
+      showAlert("ERROR", "Server connection failed.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleManualJoin = async () => {
-    if (manualCode.length < 4) return showAlert("Error", "Please enter a 4-digit code.");
+    if (manualCode.length < 4) return showAlert("ERROR", "Please enter a 4-digit code.");
     setLoading(true);
     try {
+      // SECURITY ADDITION: Retrieve your token from client storage
+      const token = await AsyncStorage.getItem('userToken');
+
       const response = await fetch(`${TABLE_URL}/join-session`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // ADDED HEADER SECURITY
+        },
         body: JSON.stringify({ 
-            joinCode: manualCode.toUpperCase(), 
-            userId: user.id,
-            restaurantId: parseInt(restaurantId) // Ensure user is joining the right branch
+          joinCode: manualCode.toUpperCase(), 
+          restaurantId: parseInt(restaurantId) 
         }),
       });
       const result = await response.json();
@@ -134,10 +141,10 @@ export default function CustomerScan({ route, navigation }) {
           restaurantId: rId
         });
       } else {
-        showAlert("Denied", result.error || "Session not found.");
+        showAlert("DENIED", result.error || "Session not found.");
       }
     } catch (e) {
-      showAlert("Error", "Server connection failed.");
+      showAlert("ERROR", "Server connection failed.");
     } finally {
       setLoading(false);
     }
@@ -147,15 +154,18 @@ export default function CustomerScan({ route, navigation }) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <CustomAlert visible={alertVisible} title={alertConfig.title} message={alertConfig.message} onClose={() => setAlertVisible(false)} />
       
-      <Text style={styles.title}>Welcome, {user.username}!</Text>
+      <Text style={styles.title}>WELCOME, {user.username.toUpperCase()}!</Text>
       
-      <View style={styles.scannerContainer}>
-        {loading && <View style={styles.loader}><ActivityIndicator size="large" color={COLORS.primary} /></View>}
-        <CameraView 
+      {/* NEOBRUTALIST 3D CAMERA SHADOW FRAME */}
+      <View style={styles.scannerWrapper}>
+        <View style={styles.scannerContainer}>
+          {loading && <View style={styles.loader}><ActivityIndicator size="large" color={COLORS.primary} /></View>}
+          <CameraView 
             style={StyleSheet.absoluteFillObject} 
             barcodeScannerEnabled 
             onBarcodeScanned={scanned ? undefined : handleBarCodeScanned} 
-        />
+          />
+        </View>
       </View>
 
       <TouchableOpacity 
@@ -163,37 +173,53 @@ export default function CustomerScan({ route, navigation }) {
         onPress={() => { setScanned(false); isProcessing.current = false; }}
       >
         <Text style={styles.resetBtnText}>
-            {scanned ? "TAP TO SCAN AGAIN" : "ALIGN QR WITHIN THE FRAME"}
+          {scanned ? "TAP TO SCAN AGAIN" : "ALIGN QR WITHIN THE FRAME"}
         </Text>
       </TouchableOpacity>
 
       <View style={styles.manualContainer}>
-        <TextInput 
+        {/* NEOBRUTALIST 3D INPUT SHADOW FRAME */}
+        <View style={styles.inputWrapper}>
+          <TextInput 
             style={styles.input} 
             placeholder="JOIN CODE" 
             placeholderTextColor="#999"
             autoCapitalize="characters" 
             maxLength={4} 
             onChangeText={setManualCode} 
-        />
-        <TouchableOpacity style={styles.button} onPress={handleManualJoin}>
-          <Text style={styles.btnText}>JOIN TABLE</Text>
-        </TouchableOpacity>
+          />
+        </View>
+        
+        {/* NEOBRUTALIST 3D BUTTON SHADOW FRAME */}
+        <View style={styles.btnWrapper}>
+          <TouchableOpacity style={styles.button} onPress={handleManualJoin}>
+            <Text style={styles.btnText}>JOIN TABLE</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center', padding: 20 },
-  title: { fontSize: 24, fontWeight: '900', marginBottom: 20, textTransform: 'uppercase', color: COLORS.secondary },
-  scannerContainer: { width: 280, height: 280, borderWidth: 4, borderColor: '#000', borderRadius: 0, overflow: 'hidden' },
-  loader: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.7)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
-  resetBtn: { marginVertical: 20, padding: 10 },
-  resetBtnText: { fontWeight: '900', color: COLORS.primary, letterSpacing: 1 },
-  manualContainer: { marginTop: 10, alignItems: 'center' },
-  input: { width: 280, backgroundColor: '#fff', borderWidth: 3, borderColor: '#000', padding: 15, textAlign: 'center', fontSize: 18, fontWeight: '900', marginBottom: 15 },
-  button: { backgroundColor: COLORS.primary, width: 280, height: 60, justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#000' },
+  container: { flex: 1, backgroundColor: '#FDFBEB', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  title: { fontSize: 24, fontWeight: '900', marginBottom: 25, letterSpacing: -0.5, color: '#000' },
+  
+  // 3D Visual Depth Layering
+  scannerWrapper: { width: 280, height: 280, backgroundColor: '#000', borderWidth: 3, borderColor: '#000' },
+  scannerContainer: { flex: 1, borderWidth: 3, borderColor: '#000', transform: [{ translateX: -6 }, { translateY: -6 }], position: 'absolute', width: '105%', height: '105%' },
+  
+  loader: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.8)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  resetBtn: { marginVertical: 25, padding: 10 },
+  resetBtnText: { fontWeight: '900', color: COLORS.primary, letterSpacing: 1, fontSize: 12 },
+  manualContainer: { alignItems: 'center', width: '100%' },
+  
+  inputWrapper: { width: 280, backgroundColor: '#000', borderWidth: 3, borderColor: '#000', marginBottom: 20 },
+  input: { width: '100%', backgroundColor: '#fff', borderWidth: 3, borderColor: '#000', padding: 15, textAlign: 'center', fontSize: 18, fontWeight: '900', transform: [{ translateX: -4 }, { translateY: -4 }] },
+  
+  btnWrapper: { width: 280, backgroundColor: '#000', borderWidth: 3, borderColor: '#000' },
+  button: { backgroundColor: COLORS.primary, width: '100%', height: 60, justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#000', transform: [{ translateX: -5 }, { translateY: -5 }] },
+  
   btnText: { color: '#FFF', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
-  text: { textAlign: 'center', marginBottom: 20, fontWeight: '700' }
+  text: { textAlign: 'center', marginBottom: 20, fontWeight: '900', color: '#000', fontSize: 14 }
 });
