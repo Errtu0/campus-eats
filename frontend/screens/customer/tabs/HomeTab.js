@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Modal, FlatList } from 'react-native';
 import { COLORS } from '../../../src/styles/theme';
-import { QrCode, Utensils, MapPin, X, Navigation, Users, GraduationCap, ChevronRight, Info, RefreshCw, Megaphone } from 'lucide-react-native';
+import { QrCode, Utensils, MapPin, X, Navigation, Users, GraduationCap, ChevronRight, Info, RefreshCw, Megaphone, Lock } from 'lucide-react-native'; // 🚀 Added Lock icon
 import { RESTAURANT_URL } from '../../../src/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -10,15 +10,12 @@ export default function HomeTab({ route, navigation }) {
   const [storesModal, setStoresModal] = useState(false);
   const [howToModal, setHowToModal] = useState(false);
   const [otherStores, setOtherStores] = useState([]);
-  
-  // Dynamic state container for our processed bulletin feed rows
   const [newsFeed, setNewsFeed] = useState([]);
 
   const loyaltyPoints = user.membership_points || 0;
   const nextLevel = 1000;
   const progress = Math.min((loyaltyPoints / nextLevel) * 100, 100);
 
-  // FIX: Read straight from local AsyncStorage logs continuously to preserve high performance frames
   const loadCachedBulletins = async () => {
     try {
       const rawNews = await AsyncStorage.getItem(`news_${restaurantId}`);
@@ -33,7 +30,6 @@ export default function HomeTab({ route, navigation }) {
   useEffect(() => {
     loadCachedBulletins();
     
-    // Add navigation focus listener hook to force update items every time student returns to panel screen spaces
     const unsubscribe = navigation.addListener('focus', () => {
       loadCachedBulletins();
     });
@@ -93,33 +89,59 @@ export default function HomeTab({ route, navigation }) {
           </View>
         </View>
 
-        {/* LOYALTY CARD BLOCK */}
+        {/* LOYALTY CARD BLOCK (UPGRADED WITH CONDITIONAL GUEST LOCK SHIELD OVERLAY) */}
         <View style={styles.loyaltyCard}>
-          <View style={styles.loyaltyLeft}>
-            <Text style={styles.levelLabel}>STATUS</Text>
-            <GraduationCap size={50} color="#000" strokeWidth={1.5} />
-            <Text style={styles.levelName}>{loyaltyPoints >= 500 ? 'SENIOR' : 'FRESHMAN'}</Text>
-          </View>
-          
-          <View style={styles.loyaltyRight}>
-            <Text style={styles.spentAmount}>{loyaltyPoints} <Text style={styles.currency}>PTS</Text></Text>
-            <Text style={styles.spentLabel}>TOTAL CAMPUS CREDIT</Text>
-            
-            <View style={styles.progressContainer}>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
+          {user?.is_guest ? (
+            // 🚀 GUEST BANNER INTERCEPTOR
+            <View style={styles.guestCardOverlay}>
+              <Lock size={20} color="#000" strokeWidth={2.5} style={styles.guestLockIcon} />
+              <View style={styles.guestOverlayTextContainer}>
+                <Text style={styles.guestOverlayTitle}>REWARDS WALLET LOCKED</Text>
+                <Text style={styles.guestOverlaySub}>SIGN IN TO TALLY DIGITAL TIER CREDITS</Text>
               </View>
-            </View>
-            
-            <View style={styles.pointsRow}>
-              <Text style={styles.pointsSub}>
-                {loyaltyPoints >= nextLevel ? "MAX LEVEL ACHIEVED" : `${nextLevel - loyaltyPoints} PTS TO NEXT LEVEL`}
-              </Text>
-              <TouchableOpacity onPress={() => setHowToModal(true)}>
-                <Text style={styles.howToText}>How to earn?</Text>
+              <TouchableOpacity 
+                style={styles.guestUnlockButton}
+                onPress={async () => {
+                  await AsyncStorage.multiRemove(['userToken', 'userData', 'active_session']);
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Welcome' }],
+                  });
+                }}
+              >
+                <Text style={styles.guestUnlockButtonText}>UNLOCK</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          ) : (
+            // STANDARD LOGGED-IN CUSTOMER RENDER
+            <>
+              <View style={styles.loyaltyLeft}>
+                <Text style={styles.levelLabel}>STATUS</Text>
+                <GraduationCap size={50} color="#000" strokeWidth={1.5} />
+                <Text style={styles.levelName}>{loyaltyPoints >= 500 ? 'SENIOR' : 'FRESHMAN'}</Text>
+              </View>
+              
+              <View style={styles.loyaltyRight}>
+                <Text style={styles.spentAmount}>{loyaltyPoints} <Text style={styles.currency}>PTS</Text></Text>
+                <Text style={styles.spentLabel}>TOTAL CAMPUS CREDIT</Text>
+                
+                <View style={styles.progressContainer}>
+                  <View style={styles.progressBarBg}>
+                    <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
+                  </View>
+                </View>
+                
+                <View style={styles.pointsRow}>
+                  <Text style={styles.pointsSub}>
+                    {loyaltyPoints >= nextLevel ? "MAX LEVEL ACHIEVED" : `${nextLevel - loyaltyPoints} PTS TO NEXT LEVEL`}
+                  </Text>
+                  <TouchableOpacity onPress={() => setHowToModal(true)}>
+                    <Text style={styles.howToText}>How to earn?</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </>
+          )}
         </View>
 
         {/* QUICK CONTROL MATRIX GRID ACTIONS */}
@@ -289,5 +311,14 @@ const styles = StyleSheet.create({
   densityText: { fontSize: 11, fontWeight: '700', color: '#666' },
   navBtn: { backgroundColor: '#000', padding: 10, borderWidth: 1, borderColor: '#fff' },
   emptyContainer: { padding: 30, alignItems: 'center' },
-  emptyText: { textAlign: 'center', fontWeight: '900', color: '#999', letterSpacing: 1 }
+  emptyText: { textAlign: 'center', fontWeight: '900', color: '#999', letterSpacing: 1 },
+
+  // 🚀 INJECTED COMPACT LOYALTY CARD OVERLAY STYLES
+  guestCardOverlay: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, backgroundColor: '#fff' },
+  guestLockIcon: { padding: 10, backgroundColor: COLORS.primary, borderWidth: 2, borderColor: '#000' },
+  guestOverlayTextContainer: { flex: 1, marginLeft: 12 },
+  guestOverlayTitle: { fontSize: 13, fontWeight: '900', color: '#000', letterSpacing: -0.3 },
+  guestOverlaySub: { fontSize: 9, fontWeight: '800', color: '#777', marginTop: 2 },
+  guestUnlockButton: { backgroundColor: COLORS.secondary, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 2.5, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 2, height: 2 }, shadowOpacity: 1, elevation: 2 },
+  guestUnlockButtonText: { color: '#fff', fontWeight: '900', fontSize: 11, letterSpacing: 0.5 }
 });

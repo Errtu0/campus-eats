@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, LayoutAnimation } from 'react-native';
 import { COLORS } from '../../../src/styles/theme';
-import { LogOut, UserCircle, ChevronDown, ChevronUp, Settings, HelpCircle, Edit3, Save } from 'lucide-react-native';
+import { LogOut, UserCircle, ChevronDown, ChevronUp, Settings, HelpCircle, Edit3, Save, Lock } from 'lucide-react-native'; // 🚀 Added Lock icon
 import { AUTH_URL } from '../../../src/config';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
@@ -10,6 +10,39 @@ export default function ProfileTab({ route, navigation }) {
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState(user.username);
   const [expandedFaq, setExpandedFaq] = useState(null);
+
+  // 🚀 GUEST GUARD PROTECTION INTERCEPTOR OVERLAY
+  if (user?.is_guest) {
+    return (
+      <View style={styles.lockOverlayContainer}>
+        <View style={styles.lockCardWrapper}>
+          <View style={styles.lockCardInner}>
+            <View style={styles.lockIconCircle}>
+              <Lock size={40} color="#000" strokeWidth={2.5} />
+            </View>
+            <Text style={styles.lockTitle}>MEMBER ACCESS ONLY</Text>
+            <Text style={styles.lockSubtitle}>
+              GUEST PROFILES ARE EPHEMERAL. RE-ROUTE TO THE AUTHENTICATION PORTAL TO UNLOCK LOYALTY CARD WALLETS.
+            </Text>
+            
+            <TouchableOpacity 
+              style={styles.signInButton}
+              activeOpacity={0.9}
+              onPress={async () => {
+                await AsyncStorage.multiRemove(['userToken', 'userData', 'active_session']);
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Welcome' }],
+                });
+              }}
+            >
+              <Text style={styles.signInButtonText}>SIGN IN TO UNLOCK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   const faqs = [
     { q: "HOW DO I START A SESSION?", a: "Find an empty table, scan the QR code located on the table, and you'll be automatically joined to that session." },
@@ -32,16 +65,14 @@ export default function ProfileTab({ route, navigation }) {
   const handleUpdateProfile = async () => {
     if (!username.trim()) return Alert.alert("ERROR", "Username cannot be empty.");
     try {
-      // SECURITY FIX: Read authorization token from local storage
       const token = await AsyncStorage.getItem('userToken');
 
       const res = await fetch(`${AUTH_URL}/update-profile`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // ATTACHED AUTH ROUTE LOCKS
+          'Authorization': `Bearer ${token}` 
         },
-        // CLEANED PAYLOAD: Removed raw userId requirement
         body: JSON.stringify({ username: username.trim() }),
       });
 
@@ -144,7 +175,7 @@ export default function ProfileTab({ route, navigation }) {
         ))}
       </View>
 
-      {/* SIGN OUT NEOBRUTALIST ACTION CARD */}
+      {/* SIGN OUT ACTION CARD */}
       <View style={styles.logoutCardWrapper}>
         <TouchableOpacity 
           style={styles.logoutCard}
@@ -204,25 +235,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
   },
   userRole: { fontSize: 11, fontWeight: '800', color: '#777', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-  
   section: { marginBottom: 25 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 15 },
   sectionTitle: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5, color: '#000' },
-  
-  // High contrast 3D wrapper frames
-  neomorphicCardWrapper: {
-    backgroundColor: '#000',
-    borderWidth: 2,
-    borderColor: '#000',
-    marginBottom: 12,
-  },
+  neomorphicCardWrapper: { backgroundColor: '#000', borderWidth: 2, borderColor: '#000', marginBottom: 12 },
   settingItem: { 
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     padding: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: '#000',
     transform: [{ translateX: -3 }, { translateY: -3 }]
   },
   settingText: { fontWeight: '900', fontSize: 13, color: '#000' },
-
   faqItem: { 
     backgroundColor: '#fff', borderWidth: 1, borderColor: '#000', padding: 16,
     transform: [{ translateX: -3 }, { translateY: -3 }]
@@ -230,17 +252,21 @@ const styles = StyleSheet.create({
   faqHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   faqQuestion: { fontWeight: '900', fontSize: 13, flex: 1, marginRight: 10, color: '#000' },
   faqAnswer: { marginTop: 12, fontWeight: '700', color: '#555', fontSize: 12, lineHeight: 16, borderTopWidth: 2, borderTopColor: '#eee', paddingTop: 10 },
-
-  logoutCardWrapper: {
-    backgroundColor: '#000',
-    borderWidth: 3,
-    borderColor: '#000',
-    marginTop: 15,
-  },
+  logoutCardWrapper: { backgroundColor: '#000', borderWidth: 3, borderColor: '#000', marginTop: 15 },
   logoutCard: { 
     flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'center', 
     backgroundColor: COLORS.primary, padding: 16, borderWidth: 1, borderColor: '#000',
     transform: [{ translateX: -4 }, { translateY: -4 }]
   },
-  logoutText: { fontWeight: '900', color: '#fff', fontSize: 13, letterSpacing: 0.5 }
+  logoutText: { fontWeight: '900', color: '#fff', fontSize: 13, letterSpacing: 0.5 },
+
+  // 🚀 INJECTED GUEST CONTROL SCREEN OVERLAY STYLES
+  lockOverlayContainer: { flex: 1, backgroundColor: '#FDFBEB', justifyContent: 'center', alignItems: 'center', padding: 25 },
+  lockCardWrapper: { backgroundColor: '#000', borderWidth: 4, borderColor: '#000', width: '100%', shadowColor: '#000', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1, elevation: 8 },
+  lockCardInner: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#000', padding: 30, alignItems: 'center', transform: [{ translateX: -6 }, { translateY: -6 }] },
+  lockIconCircle: { padding: 18, backgroundColor: COLORS.primary, borderWidth: 3, borderColor: '#000', marginBottom: 20 },
+  lockTitle: { fontSize: 22, fontWeight: '900', color: '#000', letterSpacing: -0.5, marginBottom: 10, textAlign: 'center' },
+  lockSubtitle: { fontSize: 11, fontWeight: '700', color: '#666', lineHeight: 16, textAlign: 'center', marginBottom: 25, textTransform: 'uppercase' },
+  signInButton: { width: '100%', backgroundColor: COLORS.secondary, padding: 16, alignItems: 'center', borderWidth: 3, borderColor: '#000', shadowColor: '#000', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, elevation: 2 },
+  signInButtonText: { color: '#fff', fontWeight: '900', fontSize: 14, letterSpacing: 0.5 }
 });

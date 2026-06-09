@@ -3,7 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, Modal, TextInput, StyleSheet, S
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ADMIN_URL } from '../../../src/config';
 import { COLORS, GLOBAL_STYLES } from '../../../src/styles/theme';
-import { PlusCircle, Ticket, Trash2, Megaphone, Newspaper } from 'lucide-react-native';
+import { PlusCircle, Ticket, Trash2, Megaphone, Newspaper, Users } from 'lucide-react-native';
 import CustomAlert from '../../../components/CustomAlert';
 
 export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) {
@@ -11,16 +11,16 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
   const [modalVisible, setModalVisible] = useState(false);
   const [newsModalVisible, setNewsModalVisible] = useState(false);
   
-  // Coupon Generation State Management
+  // Coupon State expanded with usage limits field metrics
   const [form, setForm] = useState({ 
     code: '', 
     discount_value: '', 
     coupon_type: 'PERCENT', 
     min_cart_limit: '',
-    applicable_to: 'ALL'
+    applicable_to: 'ALL',
+    usage_limit: '' // 🚀 NEW FIELD INPUT
   });
 
-  // Newsletter Broadcasting State Management
   const [newsForm, setNewsForm] = useState({ title: '', description: '', image_tag: 'default' });
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ title: '', message: '', onConfirm: null });
@@ -50,13 +50,14 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
           restaurant_id: restaurantId,
           coupon_type: form.coupon_type,
           min_cart_limit: form.min_cart_limit ? parseFloat(form.min_cart_limit) : 0.0,
-          applicable_to: form.applicable_to
+          applicable_to: form.applicable_to,
+          usage_limit: form.usage_limit ? parseInt(form.usage_limit) : undefined // Ship parameters directly!
         }),
       });
 
       const responseData = await res.json();
       if (res.ok) {
-        setForm({ code: '', discount_value: '', coupon_type: 'PERCENT', min_cart_limit: '', applicable_to: 'ALL' });
+        setForm({ code: '', discount_value: '', coupon_type: 'PERCENT', min_cart_limit: '', applicable_to: 'ALL', usage_limit: '' });
         refresh();
         showTabAlert("SUCCESS", "Promo rule framework compiled successfully.");
       } else {
@@ -140,7 +141,6 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
   const performDeleteNews = async (id) => {
     try {
       const token = await AsyncStorage.getItem('userToken');
-      // FIX: Attached authorization headers token parameter block to allow successful admin processing execution paths
       const res = await fetch(`${ADMIN_URL}/news-feed/${id}`, { 
         method: 'DELETE',
         headers: { 
@@ -161,18 +161,8 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
         onClose={() => {
           setAlertVisible(false);
           const activeTitle = alertConfig.title ? alertConfig.title.toUpperCase() : '';
-          
-          if (
-            activeTitle !== "SUCCESS" && 
-            activeTitle !== "DELETE PROMO" && 
-            activeTitle !== "REMOVE BULLETIN"
-          ) {
-            if (
-              activeTitle.includes("FIELDS") || 
-              activeTitle.includes("LIMIT") || 
-              activeTitle.includes("DENIED") || 
-              activeTitle.includes("DUPLICATE")
-            ) {
+          if (activeTitle !== "SUCCESS" && activeTitle !== "DELETE PROMO" && activeTitle !== "REMOVE BULLETIN") {
+            if (activeTitle.includes("FIELDS") || activeTitle.includes("DENIED") || activeTitle.includes("DUPLICATE")) {
               setModalVisible(true);
             } else if (activeTitle.includes("INFO")) {
               setNewsModalVisible(true);
@@ -210,6 +200,16 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
                       ? (item.coupon_type === 'PERCENT' ? `${item.discount_value}% OFF` : `$${item.discount_value.toFixed(2)} OFF`)
                       : item.description}
                   </Text>
+                  
+                  {/* LIVE USAGE REDEMPTION GRAPH LABELS */}
+                  {activeSegment === 'COUPONS' && (
+                    <View style={styles.capCountLabelContainer}>
+                      <Users size={12} color="#666" />
+                      <Text style={styles.capLabelText}>
+                        REDEMPTIONS: {item.current_usage || 0} / {item.usage_limit === 9999 ? 'UNLIMITED' : item.usage_limit}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -242,7 +242,6 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
         </TouchableOpacity>
       </View>
 
-      {/* RE-RENDERED PROMO MODAL ARCHITECTURE */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -268,6 +267,10 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
               <Text style={styles.label}>MINIMUM ORDER SPEND LIMIT (OPTIONAL)</Text>
               <TextInput placeholder="e.g. 15.00" placeholderTextColor="#777" keyboardType="numeric" style={styles.input} value={form.min_cart_limit} onChangeText={t => setForm({...form, min_cart_limit: t})} />
 
+              {/* 🚀 INJECT USAGE LIMIT CAP CONFIGURATION VALUE FIELDS */}
+              <Text style={styles.label}>MAXIMUM USAGE CAP REDEMPTION LIMIT (OPTIONAL)</Text>
+              <TextInput placeholder="e.g. 50 (Leave blank for infinite table uses)" placeholderTextColor="#777" keyboardType="numeric" style={styles.input} value={form.usage_limit} onChangeText={t => setForm({...form, usage_limit: t})} />
+
               <Text style={styles.label}>PRODUCT SELECTION</Text>
               <View style={styles.selectorGrid}>
                 {['ALL', 'COFFEE', 'BURGERS', 'SNACKS', 'DRINKS'].map((cat) => (
@@ -277,7 +280,6 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
                 ))}
               </View>
 
-              {/* FIX: RENDER TEXT COLOR WRAPPERS INSIDE THE NEOBRUTALIST ACTION COMPONENT */}
               <TouchableOpacity style={[styles.saveBtn, { backgroundColor: COLORS.primary }]} onPress={handleSave}>
                 <Text style={styles.saveBtnText}>ACTIVATE PROMO</Text>
               </TouchableOpacity>
@@ -287,7 +289,6 @@ export default function PromotionTab({ restaurantId, data, newsFeed, refresh }) 
         </View>
       </Modal>
 
-      {/* BULLETIN MODAL */}
       <Modal visible={newsModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -328,7 +329,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 10, fontWeight: '900', color: '#000', marginBottom: 6 },
   input: { borderWidth: 3, borderColor: '#000', padding: 12, marginBottom: 15, backgroundColor: '#fff', fontWeight: '800', fontSize: 13, color: '#000' },
   saveBtn: { padding: 14, alignItems: 'center', borderWidth: 3, borderColor: '#000' },
-  saveBtnText: { color: '#fff', fontWeight: '900', fontSize: 13, textTransform: 'uppercase' }, // Locked to bold white layout specs
+  saveBtnText: { color: '#fff', fontWeight: '900', fontSize: 13, textTransform: 'uppercase' }, 
   cancelText: { textAlign: 'center', fontSize: 11, fontWeight: '900', textDecorationLine: 'underline', color: '#666' },
   emptyText: { textAlign: 'center', marginTop: 60, fontWeight: '900', color: '#ccc' },
   toggleGroup: { flexDirection: 'row', gap: 10, marginBottom: 15 },
@@ -340,5 +341,9 @@ const styles = StyleSheet.create({
   selectorChip: { paddingHorizontal: 12, paddingVertical: 6, borderWidth: 2, borderColor: '#000', backgroundColor: '#fff' },
   activeChip: { backgroundColor: '#000' },
   chipText: { fontSize: 9, fontWeight: '900', color: '#000' },
-  activeChipText: { color: '#fff' }
+  activeChipText: { color: '#fff' },
+
+  // INJECTED STYLES FOR THE CAP LOG LABELS
+  capCountLabelContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  capLabelText: { fontSize: 9, fontWeight: '800', color: '#666' }
 });

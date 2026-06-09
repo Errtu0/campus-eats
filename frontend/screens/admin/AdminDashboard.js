@@ -76,8 +76,9 @@ const fetchAllData = useCallback(async () => {
           history: data.history || [],
           totalRevenue: data.totalRevenue || 0,
           densityLogs: data.densityLogs || [],
-          // FIX: Assign incoming backend array payload safely to central state dictionary
-          newsFeed: data.newsFeed || [] 
+          newsFeed: data.newsFeed || [],
+          // 🚀 FIX: Map the tables array through to your state engine explicitly!
+          tables: data.tables || []
         });
       } else {
         showAlert("Security Error", data.error || "Session expired");
@@ -130,7 +131,14 @@ const fetchAllData = useCallback(async () => {
       </View>
 
       <View style={styles.content}>
-        {view === 'MENU' && <MenuTab restaurantId={restaurant.id} data={dashboardData.menu} refresh={fetchAllData} />}
+        {view === 'MENU' && (
+            <MenuTab 
+              restaurantId={restaurant.id} 
+              data={dashboardData.menu} 
+              inventory={dashboardData.inventory} // 🚀 FIX: Pass the structural pantry stock down to your recipe selectors!
+              refresh={fetchAllData} 
+            />
+          )}
         {view === 'STAFF' && <StaffTab restaurantId={restaurant.id} data={dashboardData.staff} refresh={fetchAllData} />}
         {view === 'INVENTORY' && <InventoryTab restaurantId={restaurant.id} data={dashboardData.inventory} refresh={fetchAllData} />}
         {view === 'SESSIONS' && <LiveSessionsTab restaurantId={restaurant.id} 

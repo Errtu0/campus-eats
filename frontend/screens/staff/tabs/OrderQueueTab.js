@@ -2,10 +2,9 @@ import React from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { STAFF_URL } from '../../../src/config';
 import { COLORS } from '../../../src/styles/theme';
-import { CheckCircle } from 'lucide-react-native';
+import { CheckCircle, User } from 'lucide-react-native'; // 🚀 Injected User icon
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// We now receive 'orders' and 'refresh' as props from StaffDashboard
 export default function OrderQueueTab({ orders, refresh }) {
 
   const updateStatus = async (id, currentStatus) => {
@@ -18,13 +17,12 @@ export default function OrderQueueTab({ orders, refresh }) {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Added Security
+          'Authorization': `Bearer ${token}` 
         },
         body: JSON.stringify({ orderItemId: id }),
       });
 
       if (res.ok) {
-        // Instead of fetching locally, tell the parent dashboard to update everyone
         refresh();
       }
     } catch (e) {
@@ -55,11 +53,21 @@ export default function OrderQueueTab({ orders, refresh }) {
             <Text style={styles.itemName}>
               {item.item?.name} <Text style={{ color: COLORS.primary }}>x{item.quantity}</Text>
             </Text>
+
+            {/* 🚀 FIX: Display the user who created this ticket in the kitchen log row */}
+            {item.created_by?.username && (
+              <View style={styles.ownerBadgeRow}>
+                <User size={12} color="#666" strokeWidth={2.5} />
+                <Text style={styles.ownerBadgeText}>
+                  ORDERED BY: {item.created_by.username.toUpperCase()}
+                </Text>
+              </View>
+            )}
             
             <TouchableOpacity 
               style={[
                 styles.actionBtn, 
-                { backgroundColor: item.status === 'READY' ? '#fff' : COLORS.primary }
+                { backgroundColor: item.status === 'READY' ? '#fff' : COLORS.primary, marginTop: 12 }
               ]}
               onPress={() => updateStatus(item.id, item.status)}
             >
@@ -99,9 +107,13 @@ const styles = StyleSheet.create({
   tableLabel: { fontWeight: '900', fontSize: 16 },
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1 },
   badgeText: { fontWeight: '900', fontSize: 10 },
-  itemName: { fontSize: 20, fontWeight: '900', marginBottom: 15, textTransform: 'uppercase' },
+  itemName: { fontSize: 20, fontWeight: '900', marginBottom: 5, textTransform: 'uppercase' },
   actionBtn: { padding: 15, borderWidth: 3, borderColor: '#000', alignItems: 'center' },
   btnText: { fontWeight: '900', fontSize: 14 },
   empty: { alignItems: 'center', marginTop: 100 },
-  emptyText: { fontWeight: '800', color: '#ccc', marginTop: 10 }
+  emptyText: { fontWeight: '800', color: '#ccc', marginTop: 10 },
+  
+  // LOG LABEL SPECIFICATIONS
+  ownerBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginVertical: 4 },
+  ownerBadgeText: { fontSize: 10, fontWeight: '900', color: '#666' }
 });

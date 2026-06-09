@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, RefreshControl } from 'react-native';
 import { STAFF_URL } from '../../../src/config';
 import { COLORS } from '../../../src/styles/theme';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // Needed for token
+import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
-// Notice: We receive 'tables' and 'refresh' as props now
 export default function TableMapTab({ tables, refresh }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTable, setSelectedTable] = useState(null);
@@ -18,7 +17,7 @@ export default function TableMapTab({ tables, refresh }) {
     try {
       const token = await AsyncStorage.getItem('userToken');
       const res = await fetch(`${STAFF_URL}/table-details/${table.id}`, {
-        headers: { 'Authorization': `Bearer ${token}` } // Added Security
+        headers: { 'Authorization': `Bearer ${token}` } 
       });
       const data = await res.json();
       setTableDetails(data);
@@ -35,14 +34,14 @@ export default function TableMapTab({ tables, refresh }) {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Added Security
+          'Authorization': `Bearer ${token}` 
         },
         body: JSON.stringify({ tableId: selectedTable.id, status }),
       });
 
       if (res.ok) {
         setModalVisible(false);
-        refresh(); // Call the parent's refresh to update the whole UI
+        refresh(); 
       }
     } catch (e) { 
       console.error("Status Update Error:", e); 
@@ -84,7 +83,7 @@ export default function TableMapTab({ tables, refresh }) {
                   {tableDetails.items?.map((item, idx) => (
                     <View key={idx} style={styles.orderDetailRow}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.orderNameText}>{item.item.name} (x{item.quantity})</Text>
+                        <Text style={styles.orderNameText}>{item.item?.name} (x{item.quantity})</Text>
                         <View style={styles.badgeRow}>
                           <Text style={[styles.miniBadge, item.paid_by_user_id ? styles.paid : styles.unpaid]}>
                             {item.paid_by_user_id ? 'PAID' : 'UNPAID'}
@@ -92,6 +91,12 @@ export default function TableMapTab({ tables, refresh }) {
                           <Text style={[styles.miniBadge, styles.statusInfo]}>
                             {item.status}
                           </Text>
+                          {/* 🚀 FIX: Display identity tracking tag inside map details */}
+                          {item.created_by?.username && (
+                            <Text style={[styles.miniBadge, styles.ownerInfo]}>
+                              BY: {item.created_by.username.toUpperCase()}
+                            </Text>
+                          )}
                         </View>
                       </View>
                     </View>
@@ -110,14 +115,11 @@ export default function TableMapTab({ tables, refresh }) {
                           <Text style={styles.actionBtnText}>MARK AS CLEAN & READY</Text>
                         </TouchableOpacity>
                       ) : (tableDetails.items?.length === 0 || tableDetails.canClear) ? (
-                        /* FIX: If there are 0 items OR canClear is true, 
-                          allow the staff to finish the session. 
-                        */
                         <TouchableOpacity 
                           style={[styles.actionBtn, { backgroundColor: COLORS.secondary }]} 
                           onPress={() => updateTableStatus('CLEANING')}
                         >
-                          <Text style={styles.actionBtnText}>CLEANING</Text>
+                          <Text style={styles.actionBtnText}>START CLEANING</Text>
                         </TouchableOpacity>
                       ) : (
                         <View style={styles.warningBox}>
@@ -141,7 +143,6 @@ export default function TableMapTab({ tables, refresh }) {
   );
 }
 
-// ... styles remain the same
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingBottom: 100 },
@@ -158,30 +159,23 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: '90%', backgroundColor: '#FDFBEB', borderWidth: 4, padding: 25, borderColor: '#000' },
   modalTitle: { fontSize: 26, fontWeight: '900', textAlign: 'center', marginBottom: 20 },
-  orderDetailBox: { backgroundColor: '#fff', borderWidth: 2, padding: 10, marginBottom: 20 },
-  detailHeader: { fontWeight: '900', fontSize: 12, marginBottom: 10, color: '#666' },
-  orderRow: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#eee', paddingVertical: 8 },
-  orderName: { fontWeight: '800', fontSize: 14 },
-  orderStatus: { fontWeight: '900', fontSize: 10 },
   noOrders: { textAlign: 'center', marginVertical: 20, fontWeight: '700', color: '#999' },
-  actionBtn: { backgroundColor: '#000', padding: 18, borderWidth: 2, borderColor: '#000', alignItems: 'center', marginTop: 10 },
-  actionBtnText: { color: '#fff', fontWeight: '900' },
   closeBtn: { marginTop: 20, alignItems: 'center' },
   closeText: { fontWeight: '900', textDecorationLine: 'underline', color: COLORS.secondary },
   orderListScroll: { maxHeight: 200, marginVertical: 15, borderWidth: 1, borderColor: '#ccc', padding: 5 },
   orderDetailRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
   orderNameText: { fontWeight: '900', fontSize: 14 },
-  badgeRow: { flexDirection: 'row', gap: 5, marginTop: 4 },
+  badgeRow: { flexDirection: 'row', gap: 5, marginTop: 4, flexWrap: 'wrap' },
   miniBadge: { fontSize: 9, fontWeight: '900', paddingHorizontal: 4, paddingVertical: 2, borderWidth: 1 },
   paid: { backgroundColor: '#C1E1C1', borderColor: 'green' },
   unpaid: { backgroundColor: '#FFD1D1', borderColor: 'red' },
-  served: { backgroundColor: '#E0E0E0', borderColor: '#333' },
-  pending: { backgroundColor: '#FDFD96', borderColor: '#999' },
-  qtyText: { fontWeight: '900', color: COLORS.primary },
   warningBox: { backgroundColor: '#fff', borderWidth: 3, borderColor: '#000', padding: 15, marginTop: 10 },
   warningTitle: { fontWeight: '900', fontSize: 12, color: 'red', marginBottom: 5 },
   warningText: { fontWeight: '700', fontSize: 11, color: '#333' },
   actionBtn: { backgroundColor: '#000', padding: 18, alignItems: 'center', marginTop: 10, borderWidth: 3, borderColor: '#000' },
   actionBtnText: { color: '#fff', fontWeight: '900', fontSize: 16 },
   statusInfo: { backgroundColor: '#eee', borderColor: '#000', color: '#000' },
+  
+  // INJECTED CREATOR CHIP STYLING
+  ownerInfo: { backgroundColor: '#fff', borderColor: '#000', color: '#000' }
 });

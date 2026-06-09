@@ -56,14 +56,13 @@ export default function CustomerScan({ route, navigation }) {
   const connectToTable = async (id) => {
     setLoading(true);
     try {
-      // SECURITY ADDITION: Retrieve your token from client storage
       const token = await AsyncStorage.getItem('userToken');
 
       const response = await fetch(`${TABLE_URL}/open-session`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // ADDED HEADER SECURITY
+          'Authorization': `Bearer ${token}` 
         },
         body: JSON.stringify({ 
           tableId: parseInt(id), 
@@ -84,11 +83,16 @@ export default function CustomerScan({ route, navigation }) {
         
         await AsyncStorage.setItem('active_session', JSON.stringify(sessionData));
 
+        // 🚀 FIX: Fetch cached menu vector directly to prevent empty product screens
+        const rawMenu = await AsyncStorage.getItem(`menu_${currentRestId}`);
+        const cachedMenu = rawMenu ? JSON.parse(rawMenu) : [];
+
         navigation.navigate('OrderScreen', { 
           session: sessionData, 
           user: user, 
           restaurantName: result.restaurantName,
-          restaurantId: currentRestId
+          restaurantId: currentRestId,
+          menu: cachedMenu // 👈 Injected Parameter Array Fix
         });
       } else {
         setScanned(false);
@@ -108,14 +112,13 @@ export default function CustomerScan({ route, navigation }) {
     if (manualCode.length < 4) return showAlert("ERROR", "Please enter a 4-digit code.");
     setLoading(true);
     try {
-      // SECURITY ADDITION: Retrieve your token from client storage
       const token = await AsyncStorage.getItem('userToken');
 
       const response = await fetch(`${TABLE_URL}/join-session`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // ADDED HEADER SECURITY
+          'Authorization': `Bearer ${token}` 
         },
         body: JSON.stringify({ 
           joinCode: manualCode.toUpperCase(), 
@@ -134,11 +137,16 @@ export default function CustomerScan({ route, navigation }) {
         
         await AsyncStorage.setItem('active_session', JSON.stringify(sessionData));
 
+        // 🚀 FIX: Fetch cached menu vector directly to prevent empty product screens
+        const rawMenu = await AsyncStorage.getItem(`menu_${rId}`);
+        const cachedMenu = rawMenu ? JSON.parse(rawMenu) : [];
+
         navigation.navigate('OrderScreen', { 
           session: sessionData, 
           user: user, 
           restaurantName: result.restaurantName, 
-          restaurantId: rId
+          restaurantId: rId,
+          menu: cachedMenu // 👈 Injected Parameter Array Fix
         });
       } else {
         showAlert("DENIED", result.error || "Session not found.");
@@ -156,7 +164,6 @@ export default function CustomerScan({ route, navigation }) {
       
       <Text style={styles.title}>WELCOME, {user.username.toUpperCase()}!</Text>
       
-      {/* NEOBRUTALIST 3D CAMERA SHADOW FRAME */}
       <View style={styles.scannerWrapper}>
         <View style={styles.scannerContainer}>
           {loading && <View style={styles.loader}><ActivityIndicator size="large" color={COLORS.primary} /></View>}
@@ -178,7 +185,6 @@ export default function CustomerScan({ route, navigation }) {
       </TouchableOpacity>
 
       <View style={styles.manualContainer}>
-        {/* NEOBRUTALIST 3D INPUT SHADOW FRAME */}
         <View style={styles.inputWrapper}>
           <TextInput 
             style={styles.input} 
@@ -190,7 +196,6 @@ export default function CustomerScan({ route, navigation }) {
           />
         </View>
         
-        {/* NEOBRUTALIST 3D BUTTON SHADOW FRAME */}
         <View style={styles.btnWrapper}>
           <TouchableOpacity style={styles.button} onPress={handleManualJoin}>
             <Text style={styles.btnText}>JOIN TABLE</Text>
@@ -204,22 +209,16 @@ export default function CustomerScan({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FDFBEB', alignItems: 'center', justifyContent: 'center', padding: 20 },
   title: { fontSize: 24, fontWeight: '900', marginBottom: 25, letterSpacing: -0.5, color: '#000' },
-  
-  // 3D Visual Depth Layering
   scannerWrapper: { width: 280, height: 280, backgroundColor: '#000', borderWidth: 3, borderColor: '#000' },
   scannerContainer: { flex: 1, borderWidth: 3, borderColor: '#000', transform: [{ translateX: -6 }, { translateY: -6 }], position: 'absolute', width: '105%', height: '105%' },
-  
   loader: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.8)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   resetBtn: { marginVertical: 25, padding: 10 },
   resetBtnText: { fontWeight: '900', color: COLORS.primary, letterSpacing: 1, fontSize: 12 },
   manualContainer: { alignItems: 'center', width: '100%' },
-  
   inputWrapper: { width: 280, backgroundColor: '#000', borderWidth: 3, borderColor: '#000', marginBottom: 20 },
   input: { width: '100%', backgroundColor: '#fff', borderWidth: 3, borderColor: '#000', padding: 15, textAlign: 'center', fontSize: 18, fontWeight: '900', transform: [{ translateX: -4 }, { translateY: -4 }] },
-  
   btnWrapper: { width: 280, backgroundColor: '#000', borderWidth: 3, borderColor: '#000' },
   button: { backgroundColor: COLORS.primary, width: '100%', height: 60, justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#000', transform: [{ translateX: -5 }, { translateY: -5 }] },
-  
   btnText: { color: '#FFF', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
   text: { textAlign: 'center', marginBottom: 20, fontWeight: '900', color: '#000', fontSize: 14 }
 });

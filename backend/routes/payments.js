@@ -41,6 +41,10 @@ router.post('/create-payment-intent', async (req, res) => {
     if (couponId) {
       const coupon = await prisma.coupon.findUnique({ where: { id: parseInt(couponId) } });
       if (coupon && coupon.is_active) {
+        // 🚀 CRITICAL CHECK: Block generation if usage limit cap has already been reached
+        if (coupon.current_usage >= coupon.usage_limit) {
+          return res.status(400).json({ error: "This promo code cap has reached its use limit boundary." });
+        }
         totalAmount = totalAmount * (1 - (coupon.discount_value / 100));
       }
     }
@@ -144,10 +148,21 @@ router.post('/confirm-payment', async (req, res) => {
       if (couponId) {
         const coupon = await tx.coupon.findUnique({ where: { id: parseInt(couponId) } });
         if (coupon && coupon.is_active) {
+          // 🚀 DOUBLE-CHECK INSIDE TRANSACTION BOUNDARY TO PREVENT TIMING VULNERABILITY CONCURRENCY TRICKS
+          if (coupon.current_usage >= coupon.usage_limit) {
+            throw new Error("This coupon usage limit has run out during transaction processing.");
+          }
+
           finalAmount = finalAmount * (1 - (coupon.discount_value / 100));
           await tx.order.update({
             where: { id: parseInt(orderId) },
             data: { coupon_id: parseInt(couponId) }
+          });
+
+          // 🚀 FIX: INCREMENT CURRENT USAGE BY 1 UPON SECURE PAYOUT CONFIRMATION SUCCESS
+          await tx.coupon.update({
+            where: { id: parseInt(couponId) },
+            data: { current_usage: { increment: 1 } }
           });
         }
       }
@@ -171,7 +186,7 @@ router.post('/confirm-payment', async (req, res) => {
     res.json({ success: true, message: "Portion checkout processed. Remaining units split for table friends." });
   } catch (error) {
     console.error("Payment Confirmation Error:", error.message);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: error.message || "Internal Server Error" });
   }
 });
 

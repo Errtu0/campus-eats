@@ -10,7 +10,7 @@ const { isAdmin } = require('../middleware/roleMiddleware');
 router.use(verifyToken);
 router.use(isAdmin);
 
-// --- OVERVIEW & HISTORY (DASHBOARD DATA) ---
+// --- OVERVIEW & HISTORY (DASHBOARD DATA - UPGRADED TO TRACK CREATOR DETAILS) ---
 router.get('/dashboard-data', async (req, res) => {
   try {
     const restaurantId = parseInt(req.query.restaurantId);
@@ -57,7 +57,7 @@ router.get('/dashboard-data', async (req, res) => {
       }),
       prisma.user.findMany({ 
         where: { role: 'STAFF', restaurant_id: restaurantId },
-        select: { id: true, username: true, email: true, phone_number: true, role: true } // Don't expose cleartext/hashes on dashboard listing queries
+        select: { id: true, username: true, email: true, phone_number: true, role: true } 
       }),
       prisma.inventoryItem.findMany({ 
         where: { restaurant_id: restaurantId },
@@ -92,7 +92,8 @@ router.get('/dashboard-data', async (req, res) => {
               items: { 
                 include: { 
                   item: true, 
-                  paid_by: { select: { username: true } } 
+                  paid_by: { select: { username: true } },
+                  created_by: { select: { username: true } }
                 } 
               }
             }
@@ -121,9 +122,10 @@ router.get('/dashboard-data', async (req, res) => {
   }
 });
 
-// --- PROMOTIONS ENGINE ROUTE MODIFICATIONS (SECURED DUPLICATE CHECK) ---
+
+// --- PROMOTIONS ENGINE - CREATE COUPON WITH USAGE LIMITS ---
 router.post('/coupons', async (req, res) => {
-  const { code, discount_value, restaurant_id, coupon_type, min_cart_limit, applicable_to } = req.body;
+  const { code, discount_value, restaurant_id, coupon_type, min_cart_limit, applicable_to, usage_limit } = req.body;
   
   if (!code || !discount_value || !restaurant_id) {
     return res.status(400).json({ error: "Missing required rule attributes." });
@@ -132,7 +134,6 @@ router.post('/coupons', async (req, res) => {
   try {
     const formattedCode = code.toUpperCase().trim();
     
-    // Explicit server-side uniqueness structural verification checkpoint
     const existingCoupon = await prisma.coupon.findUnique({
       where: { code: formattedCode }
     });
@@ -157,7 +158,9 @@ router.post('/coupons', async (req, res) => {
         coupon_type: coupon_type || 'PERCENT',
         min_cart_limit: min_cart_limit ? parseFloat(min_cart_limit) : 0.0,
         applicable_to: applicable_to || 'ALL',
-        is_active: true
+        is_active: true,
+        usage_limit: usage_limit ? parseInt(usage_limit) : 9999, // Fallback to large limit if blank
+        current_usage: 0
       }
     });
     res.json(newCoupon);
@@ -271,56 +274,127 @@ router.patch('/staff/:id', async (req, res) => {
   }
 });
 
-// --- MENU MANAGEMENT UPGRADED TIER (WITH BOOLEAN TOGGLES) ---
+// --- SYNCED MENU CREATE CONTROLLER ROUTE ---
 router.post('/menu', async (req, res) => {
-  const { name, price, restaurant_id, category, image_name, is_vegan, is_gluten_free, is_hot, is_sweet, is_sour } = req.body;
+  const { 
+    name, 
+    price, 
+    restaurant_id, 
+    category, 
+    image_name, 
+    is_vegan, 
+    is_gluten_free, 
+    is_hot, 
+    is_sweet, 
+    is_sour,
+    ingredients // Expecting format: [{ inventoryId: 1, quantityUsed: 0.5 }]
+  } = req.body;
+
   if (!name || !price || !restaurant_id) {
     return res.status(400).json({ error: "Mandatory structural data attributes missing." });
   }
 
   try {
-    const newItem = await prisma.menuItem.create({
-      data: { 
-        name, 
-        price: parseFloat(price), 
-        restaurant_id: parseInt(restaurant_id),
-        category: category ? category.toUpperCase().trim() : "COFFEE",
-        image_name: image_name || "default",
-        // FIX: Cast directly to Boolean fields explicitly
-        is_vegan: Boolean(is_vegan),
-        is_gluten_free: Boolean(is_gluten_free),
-        is_hot: Boolean(is_hot),
-        is_sweet: Boolean(is_sweet),
-        is_sour: Boolean(is_sour)
+    const result = await prisma.$transaction(async (tx) => {
+      const newItem = await tx.menuItem.create({
+        data: { 
+          name, 
+          price: parseFloat(price), 
+          restaurant_id: parseInt(restaurant_id),
+          category: category ? category.toUpperCase().trim() : "COFFEE",
+          image_name: image_name || "default",
+          is_vegan: Boolean(is_vegan),
+          is_gluten_free: Boolean(is_gluten_free),
+          is_hot: Boolean(is_hot),
+          is_sweet: Boolean(is_sweet),
+          is_sour: Boolean(is_sour)
+        }
+      });
+
+      if (ingredients && Array.isArray(ingredients) && ingredients.length > 0) {
+        const linksData = ingredients.map(ing => ({
+          menuItemId: newItem.id,       // Matches camelCase schema field explicitly
+          inventoryId: parseInt(ing.inventoryId), // Matches camelCase schema field explicitly
+          quantityUsed: parseFloat(ing.quantityUsed)
+        }));
+
+        await tx.menuItemIngredient.createMany({
+          data: linksData
+        });
       }
+
+      return newItem;
     });
-    res.json(newItem);
+
+    res.json(result);
   } catch (error) { 
-    res.status(500).json({ error: error.message }); 
+    console.error("Recipe Link Compile Error:", error.message);
+    res.status(500).json({ error: "Failed to allocate recipe definitions." }); 
   }
 });
 
+// --- UPDATE EXISTENT MENU ITEM METADATA & NESTED RECIPE SCALES ---
 router.patch('/menu/:id', async (req, res) => {
-  const { name, price, category, image_name, is_vegan, is_gluten_free, is_hot, is_sweet, is_sour } = req.body;
+  const mId = parseInt(req.params.id);
+  const { 
+    name, 
+    price, 
+    category, 
+    image_name, 
+    is_vegan, 
+    is_gluten_free, 
+    is_hot, 
+    is_sweet, 
+    is_sour,
+    ingredients // Expecting your fresh array from the edit state list
+  } = req.body;
+
   try {
-    const updated = await prisma.menuItem.update({
-      where: { id: parseInt(req.params.id) },
-      data: { 
-        name,
-        price: price ? parseFloat(price) : undefined, 
-        category: category ? category.toUpperCase().trim() : undefined,
-        image_name: image_name || undefined,
-        // FIX: Update booleans safely if passed inside request body packets
-        is_vegan: is_vegan !== undefined ? Boolean(is_vegan) : undefined,
-        is_gluten_free: is_gluten_free !== undefined ? Boolean(is_gluten_free) : undefined,
-        is_hot: is_hot !== undefined ? Boolean(is_hot) : undefined,
-        is_sweet: is_sweet !== undefined ? Boolean(is_sweet) : undefined,
-        is_sour: is_sour !== undefined ? Boolean(is_sour) : undefined
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Update basic informational attributes on the MenuItem
+      const updatedItem = await tx.menuItem.update({
+        where: { id: mId },
+        data: { 
+          name,
+          price: price ? parseFloat(price) : undefined, 
+          category: category ? category.toUpperCase().trim() : undefined,
+          image_name: image_name || undefined,
+          is_vegan: is_vegan !== undefined ? Boolean(is_vegan) : undefined,
+          is_gluten_free: is_gluten_free !== undefined ? Boolean(is_gluten_free) : undefined,
+          is_hot: is_hot !== undefined ? Boolean(is_hot) : undefined,
+          is_sweet: is_sweet !== undefined ? Boolean(is_sweet) : undefined,
+          is_sour: is_sour !== undefined ? Boolean(is_sour) : undefined
+        }
+      });
+
+      // 2. If an ingredients payload was provided during the update, perform a clean re-write
+      if (ingredients && Array.isArray(ingredients)) {
+        // Drop all old recipe links associated with this specific item id first
+        await tx.menuItemIngredient.deleteMany({
+          where: { menuItemId: mId }
+        });
+
+        // Insert the updated layout map if the list isn't empty
+        if (ingredients.length > 0) {
+          const linksData = ingredients.map(ing => ({
+            menuItemId: mId,
+            inventoryId: parseInt(ing.inventoryId),
+            quantityUsed: parseFloat(ing.quantityUsed)
+          }));
+
+          await tx.menuItemIngredient.createMany({
+            data: linksData
+          });
+        }
       }
+
+      return updatedItem;
     });
-    res.json(updated);
+
+    res.json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Recipe Modification Compile Error:", error.message);
+    res.status(500).json({ error: "Failed to save menu item updates to systemic databases." });
   }
 });
 
@@ -463,36 +537,6 @@ router.post('/register-branch', async (req, res) => {
     res.status(500).json({ error: "Failed to create branch. Check required fields." });
   }
 });
-
-// UPGRADED VERIFICATION ENDPOINT FOR MULTI-RULE CHECKS
-router.post('/coupons/verify', async (req, res) => {
-  const { code, restaurantId, currentSubtotal } = req.body; // Expect subtotal values passed from cart components
-  try {
-    if (!code || !restaurantId) return res.status(400).json({ error: "Missing identity tracking data attributes." });
-
-    const coupon = await prisma.coupon.findFirst({
-      where: {
-        code: code.trim().toUpperCase(),
-        restaurant_id: parseInt(restaurantId),
-        is_active: true
-      }
-    });
-
-    if (!coupon) return res.status(404).json({ error: "Promo code unrecognized or expired." });
-
-    // CRITICAL: Condition limits check validation routine
-    if (currentSubtotal && parseFloat(currentSubtotal) < coupon.min_cart_limit) {
-      return res.status(400).json({ 
-        error: `Cart total insufficient. Spend at least $${coupon.min_cart_limit.toFixed(2)} to unlock.` 
-      });
-    }
-
-    res.json(coupon);
-  } catch (error) {
-    res.status(500).json({ error: "Systemic processing verification failed." });
-  }
-});
-
 
 // --- NEWSLETTER BROADCAST CONTROL PATHWAYS ---
 

@@ -5,7 +5,7 @@ import { ORDER_URL, PAYMENT_URL, ADMIN_URL } from '../../src/config';
 import { COLORS } from '../../src/styles/theme'; 
 import CustomAlert from '../../components/CustomAlert';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { X, Ticket, Plus, Minus } from 'lucide-react-native';
+import { X, Ticket, Plus, Minus, User } from 'lucide-react-native'; // 🚀 Added User icon helper
 
 const itemImages = {
   'Signature Latte': require('../../assets/latte.png'),
@@ -27,8 +27,6 @@ export default function TableCartScreen({ route, navigation }) {
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   
   const [cartItems, setCartItems] = useState([]);
-  
-  // FIX 1: SHARED SPLIT TRACKER OBJECT SYSTEM (Key: cartItemId -> Value: quantity to pay for)
   const [selectedSplits, setSelectedSplits] = useState({}); 
   
   const [loading, setLoading] = useState(true);
@@ -63,12 +61,10 @@ export default function TableCartScreen({ route, navigation }) {
       
       if (Array.isArray(data)) {
         setCartItems(data);
-        
-        // Auto-initialize split tracker state map cleanly
         const initialSplits = {};
         data.forEach(item => {
           if (!item.paid_by_user_id) {
-            initialSplits[item.id] = 0; // Starts at zero items selected to pay
+            initialSplits[item.id] = 0; 
           }
         });
         setSelectedSplits(initialSplits);
@@ -90,7 +86,7 @@ export default function TableCartScreen({ route, navigation }) {
     setVerifyingPromo(true);
     try {
       const token = await AsyncStorage.getItem('userToken');
-      const res = await fetch(`${ADMIN_URL}/coupons/verify`, {
+      const res = await fetch(`${ORDER_URL}/coupons/verify`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -98,26 +94,34 @@ export default function TableCartScreen({ route, navigation }) {
         },
         body: JSON.stringify({ 
           code: promoCode.trim().toUpperCase(), 
-          restaurantId: parseInt(rId) 
+          restaurantId: parseInt(rId),
+          currentSubtotal: parseFloat(calculateTotal()) 
         }),
       });
 
       const data = await res.json();
-      if (res.ok) {
-        setAppliedCoupon(data);
-        showAlert("SUCCESS", `${data.discount_value}% DISCOUNT LOCKED IN!`);
+      
+      if (res.ok && data.valid) {
+        setAppliedCoupon(data.coupon); 
+        showAlert("SUCCESS", `PROMO CODE: ${data.coupon.code} (-${data.coupon.discount_value}%) LOCKED IN!`);
       } else {
-        showAlert("INVALID CODE", data.error || "Promo code not found.");
         setAppliedCoupon(null);
+        if (data.error === "MIN_LIMIT_NOT_MET") {
+          showAlert("INSUFFICIENT TOTAL", `This promo requires a minimum table subtotal spend rate limit of $${data.minLimit.toFixed(2)}.`);
+        } else if (data.error === "LIMIT_REACHED") {
+          showAlert("PROMO EXHAUSTED", "This coupon allocation cap has reached its absolute user volume limit.");
+        } else {
+          showAlert("INVALID CODE", "Promo name unrecognized or no longer active on campus fields.");
+        }
       }
     } catch (e) {
-      showAlert("ERROR", "Network error: " + e.message);
+      showAlert("ERROR", "Connection interface timed out.");
+      setAppliedCoupon(null);
     } finally {
       setVerifyingPromo(false);
     }
   };
 
-  // FIX 2: STEPPER INCREMENT/DECREMENT MODIFIER PATHS FOR INDIVIDUAL CART ROW CODES
   const incrementSplit = (itemId, maxQty) => {
     setSelectedSplits(prev => {
       const currentVal = prev[itemId] || 0;
@@ -138,14 +142,17 @@ export default function TableCartScreen({ route, navigation }) {
     });
   };
 
-  const calculateTotal = () => {
+  const calculateSubtotal = () => {
     let subtotal = 0;
     cartItems.forEach(item => {
       const selectedQty = selectedSplits[item.id] || 0;
-      // Multiply specified partial unit count directly by base asset price metrics
       subtotal += (item.item.price * selectedQty);
     });
-      
+    return subtotal;
+  };
+
+  const calculateTotal = () => {
+    const subtotal = calculateSubtotal();
     if (appliedCoupon) {
       const discountVal = appliedCoupon.discount_value;
       const discount = subtotal * (discountVal / 100);
@@ -158,7 +165,7 @@ export default function TableCartScreen({ route, navigation }) {
     return Object.values(selectedSplits).some(qty => qty > 0);
   };
 
-const handlePayment = async () => {
+  const handlePayment = async () => {
     const amount = calculateTotal();
     if (parseFloat(amount) <= 0 || !hasSelectedItems()) return;
     if (cartItems.length === 0) return showAlert("ERROR", "No items to pay for.");
@@ -169,14 +176,13 @@ const handlePayment = async () => {
     try {
       const token = await AsyncStorage.getItem('userToken');
 
-      
       const flattenedItemIds = [];
-        Object.keys(selectedSplits).forEach(itemId => {
-          const qtyToPay = selectedSplits[itemId] || 0;
-          for (let i = 0; i < qtyToPay; i++) {
-            flattenedItemIds.push(parseInt(itemId));
-          }
-        });
+      Object.keys(selectedSplits).forEach(itemId => {
+        const qtyToPay = selectedSplits[itemId] || 0;
+        for (let i = 0; i < qtyToPay; i++) {
+          flattenedItemIds.push(parseInt(itemId));
+        }
+      });
 
       const response = await fetch(`${PAYMENT_URL}/create-payment-intent`, {
         method: 'POST',
@@ -185,7 +191,6 @@ const handlePayment = async () => {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ 
-          // Re-aligned perfectly with backend expectations!
           selectedItemIds: flattenedItemIds, 
           couponId: appliedCoupon?.id || null 
         }),
@@ -207,7 +212,6 @@ const handlePayment = async () => {
       if (paymentError) {
         showAlert("PAYMENT CANCELED", paymentError.message);
       } else {
-        // Apply the exact same structural adjustment to your database confirmation call below
         await confirmPaymentInDB(orderId, flattenedItemIds); 
         showAlert("SUCCESS", "Payment successful! Your points have updated.");
         setAppliedCoupon(null); 
@@ -221,7 +225,7 @@ const handlePayment = async () => {
     }
   };
 
-const confirmPaymentInDB = async (orderId, flattenedItemIds) => {
+  const confirmPaymentInDB = async (orderId, flattenedItemIds) => {
     try {
       const token = await AsyncStorage.getItem('userToken');
       await fetch(`${PAYMENT_URL}/confirm-payment`, {
@@ -232,7 +236,7 @@ const confirmPaymentInDB = async (orderId, flattenedItemIds) => {
         },
         body: JSON.stringify({ 
           orderId: orderId,
-          selectedItemIds: flattenedItemIds, // Passes the matching array safely
+          selectedItemIds: flattenedItemIds, 
           couponId: appliedCoupon?.id || null
         }),
       });
@@ -243,7 +247,6 @@ const confirmPaymentInDB = async (orderId, flattenedItemIds) => {
 
   const renderItem = ({ item }) => {
     const isPaid = !!item.paid_by_user_id;
-    // Fallback securely to quantity property defaulting safely to 1 if unassigned
     const totalQuantityAvailable = item.quantity || 1;
     const currentlySelectedShare = selectedSplits[item.id] || 0;
     const imgSource = itemImages[item.item.name] || itemImages['default'];
@@ -263,12 +266,21 @@ const confirmPaymentInDB = async (orderId, flattenedItemIds) => {
             </Text>
           )}
 
+          {/* 🚀 FIX: RENDER WHO COMMITTED THIS ITEM ONTO THE PENDING LIVE SHARED CART SHEET */}
+          {item.created_by?.username && (
+            <View style={styles.creatorBadgeRow}>
+              <User size={10} color={COLORS.secondary} strokeWidth={2.5} />
+              <Text style={styles.creatorBadgeText}>
+                ADDED BY: {item.created_by.username.toUpperCase()}
+              </Text>
+            </View>
+          )}
+
           <Text style={styles.itemSub}>
             {isPaid ? `PAID BY ${item.paid_by?.username?.toUpperCase() || 'STUDENT'}` : `$${item.item.price.toFixed(2)} each`}
           </Text>
         </View>
 
-        {/* FIX 4: INTERACTIVE STEPPER SPLITTER RENDER LOGIC FOR UNPAID SYSTEM ROWS */}
         {!isPaid && (
           <View style={styles.cartStepperContainerRow}>
             <TouchableOpacity 
@@ -385,15 +397,12 @@ const styles = StyleSheet.create({
   itemInfo: { flex: 1 },
   itemName: { fontSize: 13, fontWeight: '900', color: '#000' },
   itemSub: { fontSize: 11, color: '#555', fontWeight: '800', marginTop: 2 },
-  
-  // FIX 5: ADJUSTED FOOTPRINT STEPPER SYSTEM SHEET SPECIFICATIONS FOR BILL SPLITTING ROWS
   cartStepperContainerRow: { flexDirection: 'row', alignItems: 'center', height: 36, width: 100, borderWidth: 2.5, borderColor: '#000', backgroundColor: '#fff' },
   stepperBtn: { width: 30, height: '100%', backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
   disabledStepperBtn: { opacity: 0.2 },
   stepperValueBox: { flex: 1, height: '100%', backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', borderLeftWidth: 2.5, borderRightWidth: 2.5, borderColor: '#000' },
-  activeValueBox: { backgroundColor: '#7befb1' }, // Lights up green when items are added to your share!
+  activeValueBox: { backgroundColor: '#7befb1' }, 
   stepperValueText: { fontSize: 13, fontWeight: '900', color: '#000' },
-
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', borderTopWidth: 4, borderColor: '#000', padding: 20, paddingBottom: 35 },
   promoContainer: { flexDirection: 'row', marginBottom: 15, gap: 10 },
   promoInput: { flex: 1, borderWidth: 3, borderColor: '#000', padding: 12, fontWeight: '900', fontSize: 14, backgroundColor: '#fff' },
@@ -409,5 +418,9 @@ const styles = StyleSheet.create({
   disabledBtn: { backgroundColor: '#ddd', transform: [{ translateX: 0 }, { translateY: 0 }] },
   payBtnText: { fontWeight: '900', fontSize: 14, color: '#000', letterSpacing: 0.5 },
   emptyContainer: { paddingVertical: 60, alignItems: 'center' },
-  emptyText: { fontWeight: '900', color: '#ccc', fontSize: 14 }
+  emptyText: { fontWeight: '900', color: '#ccc', fontSize: 14 },
+
+  // NEOBRUTALIST CREATOR BADGE SPECS
+  creatorBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  creatorBadgeText: { fontSize: 10, fontWeight: '800', color: COLORS.secondary, letterSpacing: -0.3 }
 });

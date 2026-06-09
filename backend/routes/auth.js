@@ -4,22 +4,25 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const twilio = require('twilio');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs'); // INJECT CRYPTO HOOK
+const bcrypt = require('bcryptjs'); 
 const verifyToken = require('../middleware/authMiddleware');
 
 const client = (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) 
   ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN) 
   : null;
 
-const generateToken = (user) => {
+// 🚀 UPGRADED: Now accepts an optional override time window for guests to auto-expire them
+const generateToken = (user, expiresInOverride = '7d') => {
   return jwt.sign(
     { 
       id: user.id, 
       role: user.role, 
-      restaurant_id: user.restaurant_id 
+      restaurant_id: user.restaurant_id,
+      // 🚀 Include the structural state flag inside the token payload parameters
+      is_guest: user.is_guest 
     }, 
     process.env.JWT_SECRET, 
-    { expiresIn: '7d' }
+    { expiresIn: expiresInOverride }
   );
 };
 
@@ -35,7 +38,8 @@ router.get('/me', verifyToken, async (req, res) => {
         role: true,
         membership_points: true,
         phone_number: true,
-        restaurant_id: true
+        restaurant_id: true,
+        is_guest: true // Ensure the profile reader returns this check state
       }
     });
 
@@ -43,6 +47,46 @@ router.get('/me', verifyToken, async (req, res) => {
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: "Server error fetching user data" });
+  }
+});
+
+// 🚀 NEW: EPHEMERAL GUEST REGISTER & EMISSION HANDLER
+router.post('/guest-login', async (req, res) => {
+  try {
+    // Generate a unique short string mapping signature identifier
+    const uniqueSaltId = Math.random().toString(36).substring(2, 7).toUpperCase();
+    
+    const guestUsername = `GUEST_${uniqueSaltId}`;
+    const guestEmail = `guest_${uniqueSaltId.toLowerCase()}@campuseats.local`;
+    
+    // Hash a placeholder password signature just to pass strict db layouts constraints
+    const internalSalt = await bcrypt.genSalt(5);
+    const lockedHash = await bcrypt.hash(`EPHEMERAL_PASS_${uniqueSaltId}`, internalSalt);
+
+    const guestUser = await prisma.user.create({
+      data: {
+        username: guestUsername,
+        email: guestEmail,
+        password_hash: lockedHash,
+        role: 'CUSTOMER',
+        membership_points: 0,
+        is_guest: true // Activates the frontend blur overlay guards
+      }
+    });
+
+    // 🚀 Lock this token container to explode/expire safely after 2 hours flat
+    const token = generateToken(guestUser, '2h');
+    const { password_hash, ...userSafe } = guestUser;
+
+    console.log(`[Guest Shield] Ephemeral profile compiled for campus space: ${guestUsername}`);
+    res.status(201).json({ 
+      message: "GUEST_LOGIN_SUCCESS", 
+      user: userSafe, 
+      token 
+    });
+  } catch (error) {
+    console.error("Guest Generation Crash Context:", error.message);
+    res.status(500).json({ error: "Failed to generate temporary guest ticket credentials." });
   }
 });
 
@@ -59,7 +103,6 @@ router.post('/login-signup', async (req, res) => {
 
     if (!user) return res.status(404).json({ error: "USER_NOT_FOUND" });
 
-    // FIX: Secure comparison algorithm implementation
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid credentials." });
@@ -91,7 +134,6 @@ router.post('/login-signup', async (req, res) => {
 router.post('/register', async (req, res) => {
   const { username, email, password } = req.body;
   
-  // FIX: Constraint Validation Checks
   if (!username || !email || !password) {
     return res.status(400).json({ error: "All configuration entries are mandatory." });
   }
@@ -100,7 +142,6 @@ router.post('/register', async (req, res) => {
   }
 
   try {
-    // FIX: Dynamic Work-Factor Salt Gen & Async Hash
     const salt = await bcrypt.genSalt(10);
     const encryptedPassword = await bcrypt.hash(password, salt);
 
@@ -110,7 +151,8 @@ router.post('/register', async (req, res) => {
         email, 
         password_hash: encryptedPassword, 
         role: 'CUSTOMER',
-        membership_points: 0 
+        membership_points: 0,
+        is_guest: false
       }
     });
 
@@ -168,7 +210,7 @@ router.patch('/update-profile', verifyToken, async (req, res) => {
         username: username || undefined,
         email: email || undefined 
       },
-      select: { id: true, username: true, email: true, membership_points: true }
+      select: { id: true, username: true, email: true, membership_points: true, is_guest: true }
     });
     res.json(updatedUser);
   } catch (error) {

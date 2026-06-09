@@ -1,9 +1,11 @@
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { STRIPE_PUBLISHABLE_KEY } from './src/config';
+import * as Notifications from 'expo-notifications'; // 🚀 INJECTED EXPO PACKAGES
 
 // ROOT SCREENS
 import SplashScreen from './screens/SplashScreen';
@@ -24,9 +26,31 @@ import CustomerTabs from './screens/customer/CustomerTabs';
 import OrderScreen from './screens/customer/OrderScreen';
 import TableCartScreen from './screens/customer/TableCartScreen';
 
+// 🚀 CRITICAL CONFIG: Set up the device alert display rules for foreground runtime processes
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,      // Instantly forces the OS system alert banner onto the screen
+    shouldPlaySound: true,     // Triggers default audio alert tones
+    shouldSetBadge: false,
+  }),
+});
+
 const Stack = createStackNavigator();
 
 export default function App() {
+
+  useEffect(() => {
+    // Request permission matrices from Android / iOS systems upon boot
+    async function configureLocalBanners() {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+    }
+    configureLocalBanners();
+  }, []);
   
   return (
     <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>

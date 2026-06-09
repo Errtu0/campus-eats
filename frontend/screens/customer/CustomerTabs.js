@@ -1,26 +1,83 @@
+import 'react-native-gesture-handler';
 import React, { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Alert } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Home, QrCode, LayoutGrid, RotateCcw, User } from 'lucide-react-native';
 import { COLORS } from '../../src/styles/theme';
 import { TABLE_URL, ORDER_URL, RESTAURANT_URL, AUTH_URL } from '../../src/config';
+import * as Notifications from 'expo-notifications'; 
+import io from 'socket.io-client'; 
 
 // Tab Imports
 import HomeTab from './tabs/HomeTab';
 import CustomerScan from './tabs/CustomerScan';
 import TableMapTab from './tabs/TableMapTab';
-import ReorderTab from './tabs/ReorderTab';
+import HistoryTab from './tabs/HistoryTab'; // 🚀 RENAME CONTEXT TRACKED FOR COMPLIANCE
 import ProfileTab from './tabs/ProfileTab';
 
 const Tab = createBottomTabNavigator();
 
 export default function CustomerTabs({ route, navigation }) {
-  // FIX 1: Extracted 'menu' from the incoming route params array cleanly!
   const { user, restaurantId, restaurantName, menu } = route.params;
   
   const [activeSession, setActiveSession] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // 🚀 LIVE WEBSOCKET SUBSCRIBER ENGINE (NGROK TUNNEL OPTIMIZED)
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Grab the clean base tunnel string from your configuration exports
+    const socketUrl = ORDER_URL.replace('/api/orders', '').replace('/api/admin', '');
+    console.log(`📡 Connecting socket notification path over tunnel: ${socketUrl}`);
+    
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+      secure: true,              // 🔥 Force TLS/SSL configuration for public ngrok tunnels
+      rejectUnauthorized: false,  // Prevents self-signed certificate handshake drop-offs
+      forceNew: true
+    });
+
+    const userChannelKey = `NOTIFY_USER_${user.id}`;
+    console.log(`🔔 Registering local listener channel mapping: ${userChannelKey}`);
+
+    // Listen for real-time notification pulses from the kitchen staff route
+    socket.on(userChannelKey, async (remotePayload) => {
+      console.log("🎯 Inbound real-time socket packet caught:", remotePayload);
+
+      // 1. Native scheduler command for background runtime context execution
+      try {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: remotePayload.title || "ORDER COMPLIANCE SYSTEM",
+            body: remotePayload.body || "Your item is ready at the kitchen!",
+            data: { orderItemId: remotePayload.orderItemId },
+            sound: Platform.OS === 'android' ? true : undefined,
+          },
+          trigger: null, 
+        });
+      } catch (err) {
+        console.log("Native Notification engine suppressed by OS:", err.message);
+      }
+
+      // 2. 🚀 PRESENTATION ALERT FALLBACK: Triggers an instant native dialog box interface override
+      // This completely bypasses Expo Go's iOS background banner restrictions
+      Alert.alert(
+        "☕ CAMPUS EATS ALERT",
+        `${remotePayload.body || 'Your order is hot and ready at the counter!'}\n\nPlease head to the pick-up station.`,
+        [{ text: "OK, UNDERSTOOD", style: "default" }]
+      );
+    });
+
+    socket.on('connect', () => console.log('✅ Notification socket pipeline connected to tunnel.'));
+    socket.on('connect_error', (err) => console.log('❌ Tunnel socket error context:', err.message));
+
+    return () => {
+      socket.off(userChannelKey);
+      socket.disconnect();
+    };
+  }, [user?.id]);
 
   const fetchAppData = useCallback(async () => {
     try {
@@ -58,8 +115,6 @@ export default function CustomerTabs({ route, navigation }) {
           if (Array.isArray(newsData)) {
             await AsyncStorage.setItem(`news_${restaurantId}`, JSON.stringify(newsData));
           }
-        } else {
-          console.log(`⚠️ News syncer returned status indicator: ${newsRes.status}`);
         }
       } catch (err) { 
         console.error("❌ Background Bulletin Cache Syncer Err:", err.message); 
@@ -148,21 +203,10 @@ export default function CustomerTabs({ route, navigation }) {
         <Tab.Screen 
           name="Home" 
           component={HomeTab} 
-          initialParams={{ 
-            user, 
-            restaurantId, 
-            restaurantName,
-            menu 
-          }}
+          initialParams={{ user, restaurantId, restaurantName, menu }}
           options={{
             tabBarIcon: ({ color }) => <Home color={color} size={24} strokeWidth={2.5} />,
           }}
-          // FIX 2: Safely removed the undefined ghost function reference to prevent runtime crashes
-          listeners={({ navigation }) => ({
-            tabPress: () => {
-              // Automatically triggers a state refresh context hook cleanly via HomeTab's navigation listeners instead!
-            },
-          })}
         />
         <Tab.Screen 
           name="Scan" 
@@ -181,10 +225,11 @@ export default function CustomerTabs({ route, navigation }) {
           }}
         />
         <Tab.Screen 
-          name="Reorder" 
-          component={ReorderTab} 
+          name="History" // 🚀 Updated label and structural mapping properties
+          component={HistoryTab} 
           initialParams={{ user, restaurantId }}
           options={{
+            tabBarLabel: 'HISTORY',
             tabBarIcon: ({ color }) => <RotateCcw color={color} size={24} strokeWidth={2.5} />,
           }}
         />

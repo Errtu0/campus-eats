@@ -3,7 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, Modal, TextInput, StyleSheet, S
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ADMIN_URL } from '../../../src/config';
 import { COLORS, GLOBAL_STYLES } from '../../../src/styles/theme';
-import { PlusCircle, Pencil, Trash2, Leaf, Wheat, Flame, Cookie, Smile } from 'lucide-react-native';
+import { PlusCircle, Pencil, Trash2, Leaf, Wheat, Flame, Cookie, Smile, Layers, Minus } from 'lucide-react-native';
 import CustomAlert from '../../../components/CustomAlert';
 
 const itemImages = {
@@ -11,7 +11,7 @@ const itemImages = {
   'Classic Burger': require('../../../assets/burger.png'),
   'Mocha': require('../../../assets/mocha.png'),
   'Matcha Latte': require('../../../assets/matcha.png'),
-  'BBQ Burger': require('../../../assets/bbq.png'),
+  'BBQ Burger': require('../../../assets/burger.png'),
   'Rodeo Burger': require('../../../assets/rodeo_burger.png'),
   'Loaded Fries': require('../../../assets/fries.png'),
   'Lemonade': require('../../../assets/lemonade.png'),
@@ -23,7 +23,7 @@ const itemImages = {
 
 const CATEGORY_PRESETS = ['COFFEE', 'BURGERS', 'SNACKS', 'DRINKS'];
 
-export default function MenuTab({ restaurantId, data, refresh }) {
+export default function MenuTab({ restaurantId, data, inventory = [], refresh }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [editItem, setEditItem] = useState(null);
   
@@ -41,6 +41,10 @@ export default function MenuTab({ restaurantId, data, refresh }) {
   });
   const [isCustomCategoryActive, setIsCustomCategoryActive] = useState(false);
 
+  const [recipeIngredients, setRecipeIngredients] = useState([]);
+  const [selectedInventoryId, setSelectedInventoryId] = useState(null);
+  const [amountNeeded, setAmountNeeded] = useState('');
+
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ title: '', message: '', onConfirm: null });
 
@@ -49,10 +53,69 @@ export default function MenuTab({ restaurantId, data, refresh }) {
     setAlertVisible(true);
   };
 
+  // FETCH INGREDIENTS WHEN EDITING AN EXISTENT MENU ITEM TOOL
+  const fetchRecipeIngredients = async (menuItemId) => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      const response = await fetch(`${ADMIN_URL}/menu/${menuItemId}/ingredients`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const resData = await response.json();
+      if (response.ok && Array.isArray(resData)) {
+        // Map the backend models to frontend workspace structures natively
+        const mapped = resData.map(ri => ({
+          inventoryId: ri.inventoryId,
+          name: ri.inventory ? ri.inventory.name : 'Unknown Asset',
+          unit: ri.inventory ? ri.inventory.unit : 'UNITS',
+          quantityUsed: ri.quantityUsed
+        }));
+        setRecipeIngredients(mapped);
+      }
+    } catch (e) {
+      console.error("Failed to sync structural ingredients mapping backlog:", e);
+    }
+  };
+
+  const pushIngredientToRecipe = () => {
+    if (!selectedInventoryId || !amountNeeded) {
+      return showTabAlert("SELECTION ERROR", "Please select an ingredient from the asset options and enter a quantity.");
+    }
+    
+    // FIX 1: SANITIZE REGIONAL COMMA INPUT INTO FLOATS FOR DECIMALS (0,2 -> 0.2)
+    const normalizedAmount = amountNeeded.replace(',', '.');
+    const parsedAmount = parseFloat(normalizedAmount);
+
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return showTabAlert("INVALID NUMBER", "Please provide a functional metric calculation format value.");
+    }
+    
+    const matchedStock = inventory.find(i => i.id === parseInt(selectedInventoryId));
+    if (recipeIngredients.some(ri => ri.inventoryId === selectedInventoryId)) {
+      return showTabAlert("DUPLICATE", "This item is already attached to this recipe layout.");
+    }
+
+    setRecipeIngredients([...recipeIngredients, {
+      inventoryId: selectedInventoryId,
+      name: matchedStock ? matchedStock.name : `Pantry Asset #${selectedInventoryId}`,
+      unit: matchedStock ? matchedStock.unit : 'units',
+      quantityUsed: parsedAmount
+    }]);
+
+    setSelectedInventoryId(null);
+    setAmountNeeded('');
+  };
+
+  const dropIngredientFromRecipe = (id) => {
+    setRecipeIngredients(recipeIngredients.filter(ri => ri.inventoryId !== id));
+  };
+
   const handleSave = async () => {
     if (!form.name.trim() || !form.price) {
       return showTabAlert("MISSING INFO", "Please provide both an asset name and a base value.");
     }
+
+    // SANITIZE PRICE COERCIONS AS WELL TO PREVENT LOCALIZATION RUNTIME BLOCK EXCEPTIONS
+    const normalizedPrice = form.price.replace(',', '.');
 
     const finalCategory = isCustomCategoryActive 
       ? form.customCategory.trim().toUpperCase() 
@@ -75,16 +138,16 @@ export default function MenuTab({ restaurantId, data, refresh }) {
         },
         body: JSON.stringify({ 
           name: form.name.trim(), 
-          price: parseFloat(form.price), 
+          price: parseFloat(normalizedPrice), 
           restaurant_id: restaurantId,
           category: finalCategory,
           image_name: form.image_name,
-          // FIX: Pass current toggle states directly into request body payloads
           is_vegan: form.is_vegan,
           is_gluten_free: form.is_gluten_free,
           is_hot: form.is_hot,
           is_sweet: form.is_sweet,
-          is_sour: form.is_sour
+          is_sour: form.is_sour,
+          ingredients: recipeIngredients 
         }),
       });
 
@@ -92,7 +155,7 @@ export default function MenuTab({ restaurantId, data, refresh }) {
         setModalVisible(false);
         resetFormState();
         refresh();
-        showTabAlert("SUCCESS", editItem ? "Item changes saved." : "Item added to restaurant menu.");
+        showTabAlert("SUCCESS", editItem ? "Item updates saved successfully." : "Menu asset created with active ingredients mappings.");
       } else {
         const errorData = await response.json();
         showTabAlert("ERROR", errorData.error || "Save action failed.");
@@ -108,6 +171,9 @@ export default function MenuTab({ restaurantId, data, refresh }) {
       name: '', price: '', category: 'COFFEE', customCategory: '', image_name: 'default',
       is_vegan: false, is_gluten_free: false, is_hot: false, is_sweet: false, is_sour: false 
     });
+    setRecipeIngredients([]);
+    setSelectedInventoryId(null);
+    setAmountNeeded('');
     setIsCustomCategoryActive(false);
   };
 
@@ -127,7 +193,7 @@ export default function MenuTab({ restaurantId, data, refresh }) {
         refresh();
       }
     } catch (e) {
-      showTabAlert("ERROR", "Deletion request intercepted by terminal exception.");
+      showTabAlert("ERROR", "Deletion request failed.");
     }
   };
 
@@ -153,13 +219,10 @@ export default function MenuTab({ restaurantId, data, refresh }) {
               <View style={styles.itemRow}>
                 <Image source={imageSource} style={styles.thumbnailImage} />
                 <View style={{ flex: 1, paddingLeft: 12, paddingRight: 10 }}> 
-                  <Text style={styles.itemName} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
+                  <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
                   <Text style={styles.itemCategoryLabel}>SECTOR: {item.category || 'COFFEE'}</Text>
                   
-                  
-
                   <View style={styles.previewBadgeRow}>
-                    {/* Force explicit primitive evaluations using !! logic */}
                     {!!item.is_vegan && (
                       <View style={[styles.previewBadgeWrapper, { backgroundColor: '#E2F0D9' }]}>
                         <Leaf size={11} color="#2D5A27" strokeWidth={3} />
@@ -186,7 +249,6 @@ export default function MenuTab({ restaurantId, data, refresh }) {
                       </View>
                     )}
                   </View>
-
                   <Text style={styles.itemPriceLabel}>${item.price.toFixed(2)}</Text>
                 </View>
 
@@ -202,7 +264,6 @@ export default function MenuTab({ restaurantId, data, refresh }) {
                         category: isPreset ? item.category.toUpperCase() : 'COFFEE',
                         customCategory: !isPreset ? item.category : '',
                         image_name: item.image_name || 'default',
-                        // Map initial values cleanly into modal inputs
                         is_vegan: !!item.is_vegan,
                         is_gluten_free: !!item.is_gluten_free,
                         is_hot: !!item.is_hot,
@@ -210,6 +271,8 @@ export default function MenuTab({ restaurantId, data, refresh }) {
                         is_sour: !!item.is_sour
                       }); 
                       setIsCustomCategoryActive(!isPreset);
+                      // FIX 2: TRIGGER AUTOMATED RE-FETCH OF CORRESPONDING RECIPES DURING MODAL LAUNCH
+                      fetchRecipeIngredients(item.id);
                       setModalVisible(true); 
                     }}
                   >
@@ -237,7 +300,7 @@ export default function MenuTab({ restaurantId, data, refresh }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.modalTitle}>{editItem ? 'EDIT MENU ITEM' : 'ADD MENU ITEM'}</Text>
+              <Text style={styles.modalTitle}>{editItem ? 'EDIT MENU ITEM' : 'CREATE MENU ITEM'}</Text>
               
               <Text style={styles.label}>ITEM NAME</Text>
               <TextInput placeholder="e.g. Signature Latte" placeholderTextColor="#777" style={styles.input} value={form.name} onChangeText={t => setForm({ ...form, name: t })} />
@@ -264,7 +327,54 @@ export default function MenuTab({ restaurantId, data, refresh }) {
                 </View>
               )}
 
-              {/* FIX: INJECT DIETARY ATTRIBUTE TOGGLE FORM CONTROLS */}
+              {/* DYNAMIC RECIPE SCHEMAS FROM INVENTORY PROPS - RUNS CONTINUOUSLY IN CREATION AND EDIT MODE */}
+              <View style={styles.recipeBorderContainer}>
+                <Text style={[styles.label, { color: COLORS.secondary }]}>🛠 LINK INGREDIENT RECIPE SCHEMAS</Text>
+                
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginVertical: 6 }}>
+                  {inventory.length === 0 ? (
+                    <Text style={styles.noPantryWarningText}>Create pantry stock first under Inventory Tab.</Text>
+                  ) : (
+                    inventory.map((inv) => (
+                      <TouchableOpacity 
+                        key={inv.id} 
+                        style={[styles.miniIngredientChip, selectedInventoryId === inv.id && { backgroundColor: '#000' }]}
+                        onPress={() => setSelectedInventoryId(inv.id)}
+                      >
+                        <Text style={[styles.miniChipText, selectedInventoryId === inv.id && { color: '#fff' }]}>
+                          {inv.name.toUpperCase()} ({inv.unit.toLowerCase()})
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </ScrollView>
+
+                <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 4 }}>
+                  <TextInput 
+                    placeholder="Qty used per item (e.g. 0.25)" 
+                    placeholderTextColor="#777" 
+                    keyboardType="numeric" 
+                    style={[styles.input, { flex: 1, marginBottom: 0 }]} 
+                    value={amountNeeded} 
+                    onChangeText={setAmountNeeded} 
+                  />
+                  <TouchableOpacity style={styles.bindIngredientBtn} onPress={pushIngredientToRecipe}>
+                    <Layers size={14} color="#fff" />
+                    <Text style={styles.bindBtnText}>LINK</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* ACTIVE COMPILATION ITERATOR ROWS */}
+                {recipeIngredients.map((item) => (
+                  <View key={item.inventoryId} style={styles.activeRecipeRow}>
+                    <Text style={styles.recipeRowText}>• {item.name.toUpperCase()} — {item.quantityUsed} {item.unit.toUpperCase()}</Text>
+                    <TouchableOpacity onPress={() => dropIngredientFromRecipe(item.inventoryId)}>
+                      <Minus size={14} color="red" strokeWidth={3} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+
               <Text style={styles.label}>DIETARY & FLAVOR FLAGS</Text>
               <View style={styles.toggleRowContainer}>
                 <View style={styles.toggleItem}>
@@ -320,36 +430,36 @@ const styles = StyleSheet.create({
   itemName: { fontWeight: '900', fontSize: 15, textTransform: 'uppercase', color: '#000' },
   itemCategoryLabel: { fontSize: 10, fontWeight: '800', color: '#666', marginTop: 1, textTransform: 'uppercase' },
   itemPriceLabel: { color: COLORS.primary, fontWeight: '900', fontSize: 13, marginTop: 3 },
-  
   previewBadgeRow: { flexDirection: 'row', gap: 4, marginVertical: 3, alignItems: 'center' },
-  previewBadgeIcon: { padding: 1, borderWidth: 1, borderColor: '#000', backgroundColor: '#fff' },
-
+  previewBadgeWrapper: { padding: 3, borderWidth: 1.5, borderColor: '#000' },
   actionGroup: { flexDirection: 'row', gap: 8 },
   iconBox: { padding: 8, borderWidth: 2, borderColor: '#000', backgroundColor: '#fff' },
-  
   fixedBtnContainer: { position: 'absolute', bottom: 75, left: 20, right: 20, backgroundColor: '#000', borderWidth: 1, borderColor: '#000' },
   fixedAddBtn: { height: 55, backgroundColor: COLORS.primary, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#000', transform: [{ translateX: -4 }, { translateY: -4 }] },
   addBtnText: { color: '#fff', fontWeight: '900', fontSize: 14, letterSpacing: 0.5 },
-  
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalContent: { width: '100%', maxHeight: '85%', backgroundColor: '#FDFBEB', borderWidth: 4, borderColor: '#000', padding: 20, shadowColor: '#000', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1 },
   modalTitle: { fontSize: 21, fontWeight: '900', marginBottom: 20, textAlign: 'center', letterSpacing: -0.5 },
-  
   label: { fontSize: 10, fontWeight: '900', color: '#000', marginBottom: 6, letterSpacing: 0.5, marginTop: 5 },
   input: { borderWidth: 3, borderColor: '#000', padding: 12, marginBottom: 15, backgroundColor: '#fff', fontWeight: '800', fontSize: 14, color: '#000' },
-  
   toggleRowContainer: { borderWidth: 3, borderColor: '#000', backgroundColor: '#fff', padding: 10, marginBottom: 15 },
   toggleItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#eee' },
   toggleLabel: { fontSize: 10, fontWeight: '900', color: '#000' },
-
   selectorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 15 },
   selectorChip: { paddingHorizontal: 12, paddingVertical: 6, borderWidth: 2, borderColor: '#000', backgroundColor: '#fff' },
   activeChip: { backgroundColor: '#000' },
   chipText: { fontSize: 9, fontWeight: '900', color: '#000' },
   activeChipText: { color: '#fff' },
-  
   saveBtn: { backgroundColor: COLORS.secondary, padding: 16, alignItems: 'center', borderWidth: 3, borderColor: '#000', marginTop: 10 },
   saveBtnText: { color: '#fff', fontWeight: '900', fontSize: 14, letterSpacing: 0.5 },
   cancelText: { textAlign: 'center', fontSize: 11, fontWeight: '900', textDecorationLine: 'underline', color: '#666', marginTop: 5 },
-  emptyText: { textAlign: 'center', marginTop: 50, fontWeight: '900', color: '#ccc', letterSpacing: 0.5 }
+  emptyText: { textAlign: 'center', marginTop: 50, fontWeight: '900', color: '#ccc', letterSpacing: 0.5 },
+  recipeBorderContainer: { borderWidth: 3, borderColor: '#000', padding: 12, borderStyle: 'dashed', backgroundColor: '#fff', marginBottom: 15 },
+  miniIngredientChip: { paddingHorizontal: 12, paddingVertical: 6, borderWidth: 2, borderColor: '#000', backgroundColor: '#F8F8F8', marginRight: 4, marginBottom: 4 },
+  miniChipText: { fontSize: 9, fontWeight: '900', color: '#000' },
+  bindIngredientBtn: { backgroundColor: '#000', flexDirection: 'row', gap: 4, height: 48, paddingHorizontal: 16, alignItems: 'center', borderWidth: 1, borderColor: '#fff' },
+  bindBtnText: { color: '#fff', fontWeight: '900', fontSize: 11 },
+  activeRecipeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#ddd' },
+  recipeRowText: { fontSize: 10, fontWeight: '800', color: '#000' },
+  noPantryWarningText: { fontSize: 10, fontWeight: '900', color: 'red', marginVertical: 4 }
 });

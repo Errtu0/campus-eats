@@ -6,7 +6,6 @@ const { isStaff } = require('../middleware/roleMiddleware');
 const verifyToken = require('../middleware/authMiddleware'); 
 
 // --- 1. DASHBOARD DATA (Tables & Kitchen Queue) ---
-// We explicitly add verifyToken and isStaff here for absolute security
 router.get('/dashboard-data', verifyToken, isStaff, async (req, res) => {
   try {
     const staffRestaurantId = req.user.restaurant_id;
@@ -23,6 +22,8 @@ router.get('/dashboard-data', verifyToken, isStaff, async (req, res) => {
         },
         include: {
           item: true,
+          // 🚀 FIX: Include creator metrics for kitchen staff line feeds
+          created_by: { select: { username: true } },
           order: { include: { session: { include: { table: true } } } }
         },
         orderBy: { order: { created_at: 'asc' } }
@@ -32,6 +33,54 @@ router.get('/dashboard-data', verifyToken, isStaff, async (req, res) => {
     res.json({ tables, pendingOrders });
   } catch (error) {
     res.status(500).json({ error: "Dashboard fetch failed" });
+  }
+});
+
+// --- 2. TABLE DETAILS ---
+router.get('/table-details/:id', verifyToken, isStaff, async (req, res) => {
+  try {
+    const tableId = parseInt(req.params.id);
+    const staffRestaurantId = req.user.restaurant_id;
+
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table || table.restaurant_id !== staffRestaurantId) {
+      return res.status(403).json({ error: "Unauthorized access to this table." });
+    }
+
+    const session = await prisma.session.findFirst({
+      where: { table_id: tableId, is_active: true },
+      include: {
+        orders: { 
+          include: { 
+            items: { 
+              include: { 
+                item: true,
+                // 🚀 FIX: Make creator name fields pull through during individual table queries
+                created_by: { select: { username: true } }
+              } 
+            } 
+          } 
+        }
+      }
+    });
+
+    if (!session) return res.json({ active: false });
+
+    const allItems = session.orders.flatMap(order => order.items);
+    const unpaidItems = allItems.filter(item => !item.paid_by_user_id);
+    const unservedItems = allItems.filter(item => item.status !== 'SERVED');
+    
+    const canClear = allItems.length === 0 || (unpaidItems.length === 0 && unservedItems.length === 0);
+
+    res.json({
+      active: true,
+      items: allItems,
+      canClear,
+      unpaidCount: unpaidItems.length,
+      unservedCount: unservedItems.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -112,7 +161,7 @@ router.patch('/table-status', verifyToken, isStaff, async (req, res) => {
   }
 });
 
-// --- 4. ORDER READY (The missing kitchen logic) ---
+// --- 4. ORDER READY (UPGRADED WITH LOCAL LIVE WEBSOCKET BROADCAST TRIGGERS) ---
 router.patch('/order-ready', verifyToken, isStaff, async (req, res) => {
   const { orderItemId } = req.body;
   const staffRestaurantId = req.user.restaurant_id;
@@ -129,8 +178,20 @@ router.patch('/order-ready', verifyToken, isStaff, async (req, res) => {
 
     const updated = await prisma.orderItem.update({
       where: { id: parseInt(orderItemId) },
-      data: { status: 'READY' }
+      data: { status: 'READY' },
+      include: { item: true } // Include item metadata to grab product name
     });
+
+    // 🚀 WEBSOCKET DISPATCH: Trigger a local notification pulse if the Socket layer is initialized
+    if (req.io && updated.created_by_user_id) {
+      req.io.emit(`NOTIFY_USER_${updated.created_by_user_id}`, {
+        title: "ORDER READY FOR PICKUP! ☕",
+        body: `Your ${updated.item?.name || 'order item'} is hot and ready at the counter!`,
+        orderItemId: updated.id
+      });
+      console.log(`[Socket Notify] Sent local live signal block to User #${updated.created_by_user_id}`);
+    }
+
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });

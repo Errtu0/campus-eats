@@ -7,6 +7,31 @@ const verifyToken = require('../middleware/authMiddleware'); // Added JWT protec
 // Apply security to all table-related actions
 router.use(verifyToken);
 
+// 🚀 UPDATED BI ENGINE: MAPS DIRECTLY TO YOUR INDIVIDUAL HEADCOUNT TRACKER LOGIC
+async function captureLiveDensity(restaurantId) {
+  try {
+    // Read the exact live headcount tally directly from your restaurant record
+    const branchInfo = await prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { current_occupancy: true }
+    });
+
+    const activePeopleCount = branchInfo ? branchInfo.current_occupancy : 0;
+
+    // Commit a clean chronological snapshot matching your exact counter metrics
+    await prisma.densityLog.create({
+      data: {
+        restaurant_id: restaurantId,
+        peak_occupancy: activePeopleCount, // Logs exact human count (Scanners + Joiners)
+        recorded_at: new Date()
+      }
+    });
+    console.log(`[BI Log Engine] Chronological entry generated for Branch #${restaurantId}: ${activePeopleCount} people present.`);
+  } catch (err) {
+    console.error("Failed to automatically record capacity log metrics row:", err.message);
+  }
+} 
+
 // 1. Get tables for a specific restaurant (Secure & Scoped)
 router.get('/', async (req, res) => {
   const restaurantId = parseInt(req.query.restaurantId);
@@ -77,6 +102,8 @@ router.post('/open-session', async (req, res) => {
       })
     ]);
 
+    await captureLiveDensity(parseInt(restaurantId));
+
     res.json({ 
       message: "Session Started", 
       session, 
@@ -108,6 +135,8 @@ router.post('/join-session', async (req, res) => {
       where: { id: session.table.restaurant_id },
       data: { current_occupancy: { increment: 1 } }
     });
+
+    await captureLiveDensity(session.table.restaurant_id);
 
     res.json({ 
       message: "Joined Session", 
