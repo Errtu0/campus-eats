@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.campuseats.frontend",
+      "bundleIdentifier": "com.campuseats.frontend"
     },
     "android": {
       "package": "com.campuseats.frontend",
@@ -36,6 +36,11 @@
           "enableGooglePay": true
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "18b82d15-d367-41d0-af75-2c359eb200b4"
+      }
+    }
   }
 }

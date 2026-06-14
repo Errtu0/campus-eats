@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, LayoutAnimation, Switch } from 'react-native';
 import { COLORS } from '../../../src/styles/theme';
-import { LogOut, UserCircle, ChevronDown, ChevronUp, Settings, HelpCircle, Edit3, Save, Lock } from 'lucide-react-native'; // 🚀 Added Lock icon
+import { LogOut, UserCircle, ChevronDown, ChevronUp, Settings, HelpCircle, Edit3, Save, Lock } from 'lucide-react-native'; 
 import { AUTH_URL } from '../../../src/config';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
@@ -10,6 +10,12 @@ export default function ProfileTab({ route, navigation }) {
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState(user.username);
   const [expandedFaq, setExpandedFaq] = useState(null);
+  
+  // 🚀 ADDED: State for new expandable settings and mock toggles
+  const [expandedSetting, setExpandedSetting] = useState(null);
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [promoEnabled, setPromoEnabled] = useState(true);
 
   // 🚀 GUEST GUARD PROTECTION INTERCEPTOR OVERLAY
   if (user?.is_guest) {
@@ -94,6 +100,21 @@ export default function ProfileTab({ route, navigation }) {
     setExpandedFaq(expandedFaq === index ? null : index);
   };
 
+  // 🚀 ADDED: Toggle function for settings sections
+  const toggleSetting = (setting) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedSetting(expandedSetting === setting ? null : setting);
+  };
+
+  // 🚀 ADDED: Mock Stripe gateway trigger
+  const handleAddStripeCard = () => {
+    Alert.alert(
+      "STRIPE GATEWAY", 
+      "Redirecting to secure Stripe portal to tokenize new payment method...",
+      [{ text: "PROCEED", onPress: () => console.log("Stripe mock triggered") }]
+    );
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
       {/* HEADER SECTION */}
@@ -134,17 +155,52 @@ export default function ProfileTab({ route, navigation }) {
           <Text style={styles.sectionTitle}>ACCOUNT SETTINGS</Text>
         </View>
         
+        {/* 🚀 UPDATED: Expandable Payment Methods */}
         <View style={styles.neomorphicCardWrapper}>
-          <TouchableOpacity style={styles.settingItem}>
-            <Text style={styles.settingText}>PAYMENT METHODS</Text>
-            <ChevronDown size={18} color="#000" strokeWidth={2.5} />
+          <TouchableOpacity style={styles.settingCard} onPress={() => toggleSetting('payment')} activeOpacity={0.9}>
+            <View style={styles.settingHeaderRow}>
+              <Text style={styles.settingText}>PAYMENT METHODS</Text>
+              {expandedSetting === 'payment' ? <ChevronUp size={18} color="#000" strokeWidth={2.5} /> : <ChevronDown size={18} color="#000" strokeWidth={2.5} />}
+            </View>
+            
+            {expandedSetting === 'payment' && (
+              <View style={styles.expandedContent}>
+                <View style={styles.mockCard}>
+                  <Text style={styles.mockCardText}>💳 VISA ENDING IN 4242</Text>
+                  <Text style={styles.mockCardBadge}>DEFAULT</Text>
+                </View>
+                <TouchableOpacity style={styles.stripeBtn} onPress={handleAddStripeCard}>
+                  <Text style={styles.stripeBtnText}>+ ADD CARD VIA STRIPE</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
+        {/* 🚀 UPDATED: Expandable Notification Preferences */}
         <View style={styles.neomorphicCardWrapper}>
-          <TouchableOpacity style={styles.settingItem}>
-            <Text style={styles.settingText}>NOTIFICATION PREFERENCES</Text>
-            <ChevronDown size={18} color="#000" strokeWidth={2.5} />
+          <TouchableOpacity style={styles.settingCard} onPress={() => toggleSetting('notifications')} activeOpacity={0.9}>
+            <View style={styles.settingHeaderRow}>
+              <Text style={styles.settingText}>NOTIFICATION PREFERENCES</Text>
+              {expandedSetting === 'notifications' ? <ChevronUp size={18} color="#000" strokeWidth={2.5} /> : <ChevronDown size={18} color="#000" strokeWidth={2.5} />}
+            </View>
+
+            {expandedSetting === 'notifications' && (
+              <View style={styles.expandedContent}>
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>ORDER STATUS (PUSH)</Text>
+                  <Switch value={pushEnabled} onValueChange={setPushEnabled} trackColor={{ false: "#ccc", true: COLORS.secondary }} thumbColor="#000" />
+                </View>
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>EMAIL RECEIPTS</Text>
+                  <Switch value={emailEnabled} onValueChange={setEmailEnabled} trackColor={{ false: "#ccc", true: COLORS.secondary }} thumbColor="#000" />
+                </View>
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>PROMOTIONS & COUPONS</Text>
+                  <Switch value={promoEnabled} onValueChange={setPromoEnabled} trackColor={{ false: "#ccc", true: COLORS.secondary }} thumbColor="#000" />
+                </View>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -239,12 +295,28 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 15 },
   sectionTitle: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5, color: '#000' },
   neomorphicCardWrapper: { backgroundColor: '#000', borderWidth: 2, borderColor: '#000', marginBottom: 12 },
-  settingItem: { 
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: '#000',
+  
+  // 🚀 UPDATED: Setting styles matched to FAQ neomorphic logic
+  settingCard: { 
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#000', padding: 16,
     transform: [{ translateX: -3 }, { translateY: -3 }]
   },
+  settingHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   settingText: { fontWeight: '900', fontSize: 13, color: '#000' },
+  
+  expandedContent: { marginTop: 15, borderTopWidth: 2, borderTopColor: '#eee', paddingTop: 15 },
+  
+  // Stripe UI Styles
+  mockCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f5f5f5', padding: 12, borderWidth: 2, borderColor: '#000', marginBottom: 10 },
+  mockCardText: { fontWeight: '900', fontSize: 12, color: '#000' },
+  mockCardBadge: { fontSize: 10, fontWeight: '900', color: '#fff', backgroundColor: '#000', paddingHorizontal: 6, paddingVertical: 3 },
+  stripeBtn: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#000', padding: 12, alignItems: 'center', borderStyle: 'dashed' },
+  stripeBtnText: { fontWeight: '900', fontSize: 12, color: '#000' },
+
+  // Notification UI Styles
+  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  switchLabel: { fontWeight: '800', fontSize: 11, color: '#555' },
+
   faqItem: { 
     backgroundColor: '#fff', borderWidth: 1, borderColor: '#000', padding: 16,
     transform: [{ translateX: -3 }, { translateY: -3 }]
@@ -260,7 +332,7 @@ const styles = StyleSheet.create({
   },
   logoutText: { fontWeight: '900', color: '#fff', fontSize: 13, letterSpacing: 0.5 },
 
-  // 🚀 INJECTED GUEST CONTROL SCREEN OVERLAY STYLES
+  // GUEST CONTROL STYLES
   lockOverlayContainer: { flex: 1, backgroundColor: '#FDFBEB', justifyContent: 'center', alignItems: 'center', padding: 25 },
   lockCardWrapper: { backgroundColor: '#000', borderWidth: 4, borderColor: '#000', width: '100%', shadowColor: '#000', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 1, elevation: 8 },
   lockCardInner: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#000', padding: 30, alignItems: 'center', transform: [{ translateX: -6 }, { translateY: -6 }] },
