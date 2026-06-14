@@ -1,5 +1,21 @@
-node_modules
+# Dependency directories
+node_modules/
+
 # Keep environment variables out of version control
 .env
 
-/generated/prisma
+# Prisma generated clients
+/generated/prisma/
+
+# 🚀 CRITICAL: AdminJS dynamic compilation cache
+# Bunu mutlaka eklemeliyiz, yoksa esbuild'in ürettiği binlerce geçici dosya GitHub'a yüklenir.
+.adminjs/
+
+# Production builds (Eğer ileride backend build alırsan)
+dist/
+build/
+
+# IDE / System files
+.DS_Store
+Thumbs.db
+.vscode/

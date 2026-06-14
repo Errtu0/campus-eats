@@ -1,10 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const http = require('http'); // 1. Import HTTP
-const { Server } = require('socket.io'); // 2. Import Socket.io
+const http = require('http'); 
+const { Server } = require('socket.io'); 
+const path = require('path'); // Added for static files
 
-// Your Route Imports
+// Route Imports
 const authRoutes = require('./routes/auth');
 const tableRoutes = require('./routes/tables');
 const orderRoutes = require('./routes/orders');
@@ -12,33 +13,39 @@ const staffRoutes = require('./routes/staff');
 const paymentRoutes = require('./routes/payments');
 const adminRoutes = require('./routes/admin');
 const restaurantRoutes = require('./routes/restaurants');
-const PORT = 3000;
+const superadminRoutes = require('./routes/superadmin');
 
+const PORT = 3000;
 const app = express();
-const server = http.createServer(app); // 3. Create the HTTP server
+const server = http.createServer(app); 
+
+// Socket.io Setup
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }, // Allow mobile app connections
+  cors: { origin: "*", methods: ["GET", "POST"] }
 });
+
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on port ${PORT}`);
-});
-
 app.use(cors());
-app.use(express.json());
 
-// 4. Attach the 'io' instance to every request so routes can use it
+// 1. SERVE STATIC FILES (This is where your custom-brutalism.css goes!)
+app.use(express.static(path.join(__dirname, 'public')));
+
+// 2. ATTACH SOCKET.IO GLOBALLY
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// Routes
+// 3. MOUNT SUPERADMIN *BEFORE* EXPRESS.JSON()
+// AdminJS handles its own body parsing. If express.json() runs first, AdminJS forms break.
+app.use('/api/superadmin', superadminRoutes);
+
+// 4. NOW APPLY GLOBAL BODY PARSERS FOR THE REST OF THE APP
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 5. MOUNT REMAINING ROUTES
 app.use('/api/auth', authRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/orders', orderRoutes);
@@ -47,14 +54,15 @@ app.use('/api/staff', staffRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 
-// 5. Socket.io Connection Logic
+// Socket.io Connection Logic
 io.on('connection', (socket) => {
   console.log('⚡ User connected:', socket.id);
-  
   socket.on('disconnect', () => {
     console.log('🔥 User disconnected');
   });
 });
 
-// 6. LISTEN USING THE SERVER (Not app.listen)
-server.listen(3000, () => console.log("🚀 Real-time Server ready on port 3000"));
+// 6. START THE HTTP SERVER (Only call listen ONCE, on the 'server' object)
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Real-time CampusEats Server ready on port ${PORT}`);
+});

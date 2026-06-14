@@ -174,3 +174,16 @@ npx expo start
 4. **Run the Application:**
 * Scan the QR code provided in the terminal using the **Expo Go** app on your physical iOS/Android device.
 * Alternatively, press `a` for Android Emulator or `i` for iOS Simulator directly within the terminal.
+
+<br>
+
+5. **Accounts for Testing**
+
+```bash
+Super Admin Account: email: superadmin@campuseats.com / password: superpassword123
+
+Admin Account: username: admin1 / password: password123
+
+Staff Account: username: staff4 / password: password123
+
+Customer Account: username: furkan / password: password123

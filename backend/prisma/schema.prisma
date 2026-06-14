@@ -13,6 +13,7 @@ enum Role {
   CUSTOMER
   STAFF
   ADMIN
+  SUPERADMIN
 }
 
 enum TableStatus {
@@ -32,6 +33,12 @@ enum CouponCategory {
   BURGERS
   SNACKS
   DRINKS
+}
+
+enum BranchStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
 }
 
 model User {
@@ -68,6 +75,7 @@ model Restaurant {
   density_logs      DensityLog[]
   coupons           Coupon[]
   news_feeds        PromotionNews[]
+  status BranchStatus @default(PENDING)
 }
 
 model Table {

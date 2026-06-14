@@ -1,0 +1,276 @@
+/* =============================================================
+   CAMPUSEATS OS — NEOBRUTALIST THEME OVERRIDE V6
+   ============================================================= */
+
+/* ── 0. RESET ───────────────────────────────────────────────── */
+* {
+    border-radius: 0px !important;
+    box-sizing: border-box;
+}
+
+/* ── 1. ROOT COLOUR TOKENS ──────────────────────────────────── */
+:root {
+    --adminjs-colors-bg:       #F4F1DE !important;
+    --adminjs-colors-surface:  #F4F1DE !important;
+    --adminjs-colors-sidebar:  #F4F1DE !important;
+    --adminjs-colors-border:   #000000 !important;
+    --adminjs-colors-primary100: #DD5544 !important;
+}
+
+/* ── 2. GLOBAL BACKGROUND BLAST ─────────────────────────────── */
+html, body, #app, #root, main {
+    background-color: #F4F1DE !important;
+}
+
+[data-css="App"], [data-css="App"] > *, [data-css="main"], [data-css="content"], [data-css="wrapper"], [data-css="box"] {
+    background-color: #F4F1DE !important;
+}
+
+[class*="Box-"], [class*="Section-"], [class*="DrawerContent"], [class*="Placeholder-"] {
+    background-color: #F4F1DE !important;
+}
+
+[variant="white"], [variant="grey"], [variant="transparent"],
+div[style*="background: rgb(247"], div[style*="background: white"], div[style*="background: #fff"],
+div[style*="background-color: white"], div[style*="background-color: #fff"], div[style*="background-color: rgb(247"] {
+    background-color: #F4F1DE !important;
+}
+
+section, article {
+    background-color: #F4F1DE !important;
+}
+
+/* ── 3. SIDEBAR ─────────────────────────────────────────────── */
+[data-css="sidebar"], [class*="Sidebar"], nav[data-css="sidebar"] {
+    background-color: #F4F1DE !important;
+    border-right: 4px solid #000000 !important;
+    box-shadow: none !important;
+}
+
+[data-css="sidebar"] > *, [class*="Sidebar"] > * {
+    background-color: #F4F1DE !important;
+}
+
+[data-css="sidebar"] [class*="Brand"], [data-css="sidebar"] [class*="brand"], [data-css="sidebar"] h1, [data-css="sidebar"] h2, [data-css="sidebar"] header span, [data-css="sidebar"] header a {
+    color: #000000 !important;
+    font-weight: 900 !important;
+    font-size: 14px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+    background-color: transparent !important;
+    text-decoration: none !important;
+}
+
+/* Nav links — Default */
+[data-css="sidebar"] a, [class*="Sidebar"] a, [class*="NavLink"] {
+    color: #333333 !important;
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    border: 2px solid transparent !important;
+    margin: 2px 8px !important;
+    transition: all 0.08s ease !important;
+    background-color: transparent !important;
+    text-decoration: none !important;
+}
+
+[data-css="sidebar"] a *, [class*="Sidebar"] a *, [class*="NavLink"] * {
+    color: #333333 !important;
+    background-color: transparent !important;
+}
+
+/* Nav links — HOVER & ACTIVE */
+[data-css="sidebar"] a:hover, [class*="Sidebar"] a:hover, [class*="NavLink"]:hover,
+[data-css="sidebar"] a[aria-current="page"], [class*="NavLink"][aria-current="page"], [class*="NavLink--active"], [class*="isSelected"] {
+    background-color: #DD5544 !important;
+    color: #FFFFFF !important;          
+    border: 2px solid #000000 !important;
+    transform: translate(-2px, -2px) !important;
+    box-shadow: 4px 4px 0px #000000 !important;
+}
+
+[data-css="sidebar"] a:hover *, [class*="Sidebar"] a:hover *, [class*="NavLink"]:hover *,
+[data-css="sidebar"] a[aria-current="page"] *, [class*="NavLink"][aria-current="page"] * {
+    color: #FFFFFF !important;          
+    background-color: transparent !important;
+}
+
+/* 🚀 FIX: SVG İkonların Hover Durumunda Çizgi Renklerini Koruma */
+[data-css="sidebar"] a:hover svg, [data-css="sidebar"] a:hover svg *,
+[class*="NavLink"]:hover svg, [class*="NavLink"]:hover svg *,
+[class*="NavLink--active"] svg, [class*="NavLink--active"] svg * {
+    fill: none !important;              
+    stroke: #FFFFFF !important;         /* Çizgiler artık simsiyah boğulmuyor, BEYAZ kalıyor */
+    color: #FFFFFF !important;
+}
+
+[data-css="sidebar"] p, [class*="Sidebar"] p, [class*="NavGroup"] > span, [class*="NavGroup"] > p {
+    color: #000000 !important;
+    font-weight: 900 !important;
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+    background-color: transparent !important;
+}
+
+/* ── 4. TOP BAR ──────────────────────────────────────────────── */
+[data-css="topbar"], [class*="TopBar"], [class*="Topbar"], header, nav:not([data-css="sidebar"]) {
+    background-color: #F4F1DE !important;
+    border-bottom: 4px solid #000000 !important;
+    box-shadow: none !important;
+}
+
+[data-css="topbar"] *, [class*="TopBar"] * {
+    background-color: transparent !important;
+    color: #333333 !important;
+}
+
+/* ── 5. CONTENT AREA CARDS & WRAPPERS ────────────────────────── */
+[data-css="card"], [class*="Card-"], [class*="InfoCard"], [class*="Panel-"], [class*="Drawer-"] {
+    background-color: #F4F1DE !important;
+    border: 2px solid #000000 !important;
+    box-shadow: 6px 6px 0px #000000 !important;
+}
+
+[class*="PageHeader"], [data-css="pageHeader"] {
+    background-color: #F4F1DE !important;
+    border-bottom: 2px solid #000000 !important;
+}
+
+/* ── 6. DATA TABLES ──────────────────────────────────────────── */
+table {
+    border: 4px solid #000000 !important;
+    background-color: #F4F1DE !important;
+    box-shadow: 8px 8px 0px #000000 !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+}
+
+thead { background-color: #DD5544 !important; }
+
+th {
+    background-color: #DD5544 !important;
+    color: #FFFFFF !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    border-bottom: 4px solid #000000 !important;
+    border-right: 2px solid #000000 !important;
+    padding: 14px 16px !important;
+}
+
+td {
+    background-color: #F4F1DE !important;
+    border-bottom: 2px solid #000000 !important;
+    border-right: 2px solid #000000 !important;
+    font-weight: 600 !important;
+    color: #333333 !important;
+    padding: 10px 14px !important;
+}
+
+tbody tr:hover td { background-color: rgba(54, 54, 54, 0.08) !important; }
+
+/* 🚀 FIX: BULK ACTION BAR (Satır seçince yukarıda çıkan Delete All çubuğu) */
+[class*="BulkActions"], [data-css="bulk-actions"], div[class*="ActionBar"], div[class*="BulkActions"] {
+    background-color: #DD5544 !important; /* Tam kırmızı zemin */
+    border: 3px solid #000000 !important;
+    box-shadow: 6px 6px 0px #000000 !important;
+    padding: 15px !important;
+}
+
+/* Kartın içindeki "Selected (1)" ve "Delete all" metinlerini/ikonlarını beyaz yap */
+[class*="BulkActions"] *, div[class*="ActionBar"] *, [class*="BulkActions"] button * {
+    color: #FFFFFF !important;           
+    background-color: transparent !important;
+}
+
+/* ── 7. BUTTONS ──────────────────────────────────────────────── */
+button, [type="button"], [type="submit"], [role="button"], a[data-testid="action-button"], [class*="Button-"] {
+    border: 2px solid #000000 !important;
+    background-color: #DD5544 !important;
+    color: #FFFFFF !important;
+    box-shadow: 4px 4px 0px #000000 !important;
+    font-weight: 900 !important;
+    font-size: 13px !important;
+    text-transform: uppercase !important;
+}
+
+button:hover, [role="button"]:hover, [class*="Button-"]:hover {
+    transform: translate(-2px, -2px) !important;
+    box-shadow: 6px 6px 0px #000000 !important;
+}
+
+button:active, [role="button"]:active {
+    transform: translate(4px, 4px) !important;
+    box-shadow: 0px 0px 0px #000000 !important;
+}
+
+button[class*="ghost"], button[variant="secondary"], [class*="Button-"][variant="secondary"] {
+    background-color: #F4F1DE !important;
+    color: #333333 !important;
+}
+
+/* ── 8. FORM INPUTS ──────────────────────────────────────────── */
+input, input[type="text"], input[type="email"], input[type="password"], select, textarea {
+    border: 2px solid #618C82 !important;
+    box-shadow: 4px 4px 0px #000000 !important;
+    background-color: #FFFFFF !important;
+    font-weight: 700 !important;
+    color: #333333 !important;
+    padding: 8px 12px !important;
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: none !important;
+    border-color: #DD5544 !important;
+    box-shadow: 4px 4px 0px #DD5544 !important;
+}
+
+label, [class*="Label-"] {
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    font-size: 11px !important;
+    color: #000000 !important;
+    background: transparent !important;
+}
+
+/* ── 9. BADGES / TAGS ────────────────────────────────────────── */
+[class*="Badge-"], [class*="Tag-"], [class*="Chip-"] {
+    border: 2px solid #000000 !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    background-color: #618C82 !important;
+    color: #FFFFFF !important;
+}
+
+/* ── 13. LOGIN PAGE ──────────────────────────────────────────── */
+[data-css="login"], [class*="Login-"], div[class*="StyledLogin"] {
+    background-color: #F4F1DE !important;
+}
+
+div[class*="Wrapper-"] > div[class*="Box-"] {
+    background-color: #FFFFFF !important;
+    border: 4px solid #000000 !important;
+    box-shadow: 10px 10px 0px #000000 !important;
+}
+
+/* 🚀 FIX: Login ekranının solundaki o bembeyaz kalan Welcome kartını canlandırma */
+div[class*="Login-"] div[class*="Card"], 
+div[class*="Login-"] [variant="grey"],
+div[class*="Login-"] [class*="Illustration"],
+div[class*="LoginBox"] > div:first-child {
+    background-color: #618C82 !important; /* Görünürlük için temadaki mavimsi yeşil tonu */
+    border-right: 4px solid #000000 !important;
+}
+
+/* Sol kartın içindeki soluk beyaz yazıları netleştirme */
+div[class*="Login-"] div[class*="Card"] *, 
+div[class*="Login-"] [class*="Illustration"] *,
+div[class*="LoginBox"] > div:first-child * {
+    color: #FFFFFF !important;             
+}
+
+/* ── 14. SCROLLBARS ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #F4F1DE; border-left: 2px solid #000000; }
+::-webkit-scrollbar-thumb { background: #000000; }
+::-webkit-scrollbar-thumb:hover { background: #DD5544; }
